@@ -11,9 +11,9 @@ use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
 use std::fs::File;
 use std::io::Write;
 
-pub fn process_folder(folder_path: &str) -> Result<(), Box<dyn Error>> {
+pub fn process_folder(folder_path: &str, use_simple_outline: bool) -> Result<(), Box<dyn Error>> {
     let num_threads = num_cpus::get();
-    println!("Number of threads used:{:?}", num_cpus);
+    println!("Number of threads used: {:?}", num_cpus);
 
     let pool = ThreadPool::new(num_threads);
     let (tx, rx) = mpsc::channel();
@@ -37,11 +37,11 @@ pub fn process_folder(folder_path: &str) -> Result<(), Box<dyn Error>> {
         pool.execute(move || {
             println!("Creating read thread for {:?}", file_path);
 
-            if let Ok(feature) = create_convex_hull(&file_path) {
+            if let Ok(feature) = create_polygon(&file_path, use_simple_outline) {
                 feature_tx.send(feature).unwrap();
-                println!("{:?} convex hull succesfully created", file_path);
+                println!("{:?} polygon successfully created", file_path);
             } else {
-                println!("Error in thread{:?}", file_path);
+                println!("Error in thread {:?}", file_path);
             }
         });
     }
@@ -63,38 +63,51 @@ pub fn process_folder(folder_path: &str) -> Result<(), Box<dyn Error>> {
     let geojson = GeoJson::FeatureCollection(feature_collection);
 
     // Save the GeoJSON to a file
-    let mut file = File::create("convex_hulls.geojson")?;
+    let mut file = File::create("polygons.geojson")?;
     file.write_all(geojson.to_string().as_bytes())?;
 
-    println!("Convex hulls saved to convex_hulls.geojson");
+    println!("Polygons saved to polygons.geojson");
 
     Ok(())
 }
 
-fn create_convex_hull(file_path: &str) -> Result<Feature, Box<dyn Error>> {
+fn create_polygon(file_path: &str, use_simple_outline: bool) -> Result<Feature, Box<dyn Error>> {
     // Open the LAS file
     let mut reader = Reader::from_path(file_path)?;
 
-    // Collect points
-    let points: Vec<Coord<f64>> = reader
-        .points()
-        .filter_map(Result::ok)
-        .map(|p| Coord { x: p.x, y: p.y })
-        .collect();
+    let geojson_polygon = if use_simple_outline {
+        // Use the header to create a simple outline
+        let header = reader.header();
+        let exterior_coords = vec![
+            vec![header.min_x, header.min_y],
+            vec![header.max_x, header.min_y],
+            vec![header.max_x, header.max_y],
+            vec![header.min_x, header.max_y],
+            vec![header.min_x, header.min_y],
+        ];
+        Value::Polygon(vec![exterior_coords])
+    } else {
+        // Collect points
+        let points: Vec<Coord<f64>> = reader
+            .points()
+            .filter_map(Result::ok)
+            .map(|p| Coord { x: p.x, y: p.y })
+            .collect();
 
-    // Create a LineString from the points
-    let line_string = LineString::from(points);
+        // Create a LineString from the points
+        let line_string = LineString::from(points);
 
-    // Compute the convex hull
-    let convex_hull: Polygon<f64> = line_string.convex_hull();
+        // Compute the convex hull
+        let convex_hull: Polygon<f64> = line_string.convex_hull();
 
-    // Convert the convex hull to GeoJSON
-    let exterior_coords: Vec<Vec<f64>> = convex_hull
-        .exterior()
-        .coords()
-        .map(|c| vec![c.x, c.y])
-        .collect();
-    let geojson_polygon = Value::Polygon(vec![exterior_coords]);
+        // Convert the convex hull to GeoJSON
+        let exterior_coords: Vec<Vec<f64>> = convex_hull
+            .exterior()
+            .coords()
+            .map(|c| vec![c.x, c.y])
+            .collect();
+        Value::Polygon(vec![exterior_coords])
+    };
 
     let geometry = Geometry::new(geojson_polygon);
     let feature = Feature {
