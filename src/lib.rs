@@ -13,7 +13,7 @@ use std::io::Write;
 
 pub fn process_folder(folder_path: &str, use_simple_outline: bool) -> Result<(), Box<dyn Error>> {
     let num_threads = num_cpus::get();
-    println!("Number of threads used: {:?}", num_cpus);
+    println!("Number of threads used: {:?}", num_threads);
 
     let pool = ThreadPool::new(num_threads);
     let (tx, rx) = mpsc::channel();
@@ -77,13 +77,13 @@ fn create_polygon(file_path: &str, use_simple_outline: bool) -> Result<Feature, 
 
     let geojson_polygon = if use_simple_outline {
         // Use the header to create a simple outline
-        let header = reader.header();
+        let bounds = reader.header().bounds();
         let exterior_coords = vec![
-            vec![header.min_x, header.min_y],
-            vec![header.max_x, header.min_y],
-            vec![header.max_x, header.max_y],
-            vec![header.min_x, header.max_y],
-            vec![header.min_x, header.min_y],
+            vec![bounds.min.x, bounds.min.y],
+            vec![bounds.max.x, bounds.min.y],
+            vec![bounds.max.x, bounds.max.y],
+            vec![bounds.min.x, bounds.max.y],
+            vec![bounds.min.x, bounds.min.y],
         ];
         Value::Polygon(vec![exterior_coords])
     } else {
