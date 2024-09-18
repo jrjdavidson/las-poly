@@ -7,14 +7,14 @@ fn main() {
 
     // Check if the file path argument is provided
     if args.len() < 2 {
-        eprintln!("Usage: {} <path_to_las_file>", args[0]);
+        eprintln!("Usage: {} <path_to_las_folder>", args[0]);
         process::exit(1);
     }
 
     let folder_path = &args[1];
 
     // Call the function from lib.rs
-    if let Err(e) = las_poly::process_folder(folder_path) {
+    if let Err(e) = las_poly::process_folder(folder_path, true) {
         eprintln!("Error: {}", e);
         process::exit(1);
     }

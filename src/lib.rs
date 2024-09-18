@@ -1,6 +1,7 @@
 use geo::ConvexHull;
 use geo::{Coord, LineString, Polygon};
 use las::Reader;
+use serde_json::Map;
 use std::error::Error;
 use std::sync::mpsc;
 use std::thread;
@@ -108,11 +109,13 @@ fn create_polygon(file_path: &str, use_simple_outline: bool) -> Result<Feature, 
             .collect();
         Value::Polygon(vec![exterior_coords])
     };
-
     let geometry = Geometry::new(geojson_polygon);
+    let mut properties = Map::new();
+    properties.insert("filename".to_string(), file_path.to_string().into());
+
     let feature = Feature {
         geometry: Some(geometry),
-        properties: None,
+        properties: Some(properties),
         id: None,
         bbox: None,
         foreign_members: None,

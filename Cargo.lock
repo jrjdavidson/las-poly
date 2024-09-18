@@ -274,6 +274,7 @@ dependencies = [
  "geojson",
  "las",
  "num_cpus",
+ "serde_json",
  "threadpool",
  "walkdir",
 ]
