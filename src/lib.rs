@@ -12,7 +12,11 @@ use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
 use std::fs::File;
 use std::io::Write;
 
-pub fn process_folder(folder_path: &str, use_simple_outline: bool) -> Result<(), Box<dyn Error>> {
+pub fn process_folder(
+    folder_path: &str,
+    use_simple_outline: bool,
+    group_by_folder: bool,
+) -> Result<(), Box<dyn Error>> {
     let num_threads = num_cpus::get();
     println!("Number of threads used: {:?}", num_threads);
 
@@ -52,8 +56,14 @@ pub fn process_folder(folder_path: &str, use_simple_outline: bool) -> Result<(),
     // Collect features from the channel
     let mut features = Vec::new();
     for feature in feature_rx {
-        features.push(feature);
+        if group_by_folder {
+            features.push(feature);
+            features.groupby("folder_path");
+        } else {
+            features.push(feature);
+        }
     }
+    // Group features by folder path
 
     // Create a FeatureCollection from all the features
     let feature_collection = FeatureCollection {
@@ -71,6 +81,8 @@ pub fn process_folder(folder_path: &str, use_simple_outline: bool) -> Result<(),
 
     Ok(())
 }
+
+use std::path::Path;
 
 fn create_polygon(file_path: &str, use_simple_outline: bool) -> Result<Feature, Box<dyn Error>> {
     // Open the LAS file
@@ -112,6 +124,14 @@ fn create_polygon(file_path: &str, use_simple_outline: bool) -> Result<Feature, 
     let geometry = Geometry::new(geojson_polygon);
     let mut properties = Map::new();
     properties.insert("filename".to_string(), file_path.to_string().into());
+
+    // Extract folder path from file path
+    if let Some(folder_path) = Path::new(file_path).parent() {
+        properties.insert(
+            "folder_path".to_string(),
+            folder_path.to_string_lossy().into(),
+        );
+    }
 
     let feature = Feature {
         geometry: Some(geometry),
