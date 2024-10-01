@@ -16,6 +16,7 @@ pub fn process_folder(
     folder_path: &str,
     use_simple_outline: bool,
     group_by_folder: bool,
+    recurse: bool, // New parameter to control recursion
 ) -> Result<(), Box<dyn Error>> {
     let num_threads = num_cpus::get();
     println!("Number of threads used: {:?}", num_threads);
@@ -26,7 +27,13 @@ pub fn process_folder(
     // Spawn a thread to walk through the directory and send file paths
     let folder_path = folder_path.to_string();
     thread::spawn(move || {
-        for entry in WalkDir::new(folder_path).into_iter().filter_map(Result::ok) {
+        let walker = if recurse {
+            WalkDir::new(folder_path).into_iter()
+        } else {
+            WalkDir::new(folder_path).max_depth(1).into_iter()
+        };
+
+        for entry in walker.filter_map(Result::ok) {
             if entry.path().extension().and_then(|s| s.to_str()) == Some("las") {
                 let file_path = entry.path().to_str().unwrap().to_string();
                 tx.send(file_path).unwrap();
@@ -210,6 +217,10 @@ fn create_polygon(file_path: &str, use_simple_outline: bool) -> Result<Feature, 
         header.generating_software().into(),
     );
     properties.insert(
+        "version".to_string(),
+        format!("{}.{}", header.version().major, header.version().minor).into(),
+    );
+    properties.insert(
         "system_identifier".to_string(),
         header.system_identifier().into(),
     );
@@ -293,7 +304,7 @@ mod tests {
     #[test]
     fn test_process_folder_no_group_by_folder() {
         let folder_path = "tests/data";
-        let result = process_folder(folder_path, false, false);
+        let result = process_folder(folder_path, false, false, true);
         println!("{:?}", result);
         assert!(result.is_ok());
 
@@ -358,7 +369,7 @@ mod tests {
     #[test]
     fn test_integration_workflow_group_by_folder() {
         let folder_path = "tests/data";
-        let result = process_folder(folder_path, false, true);
+        let result = process_folder(folder_path, false, true, true);
         assert!(result.is_ok());
 
         // Check if the output file is created

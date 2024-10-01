@@ -14,7 +14,7 @@ fn main() {
     let folder_path = &args[1];
 
     // Call the function from lib.rs
-    if let Err(e) = las_poly::process_folder(folder_path, true, true) {
+    if let Err(e) = las_poly::process_folder(folder_path, true, false, false) {
         eprintln!("Error: {}", e);
         process::exit(1);
     }
