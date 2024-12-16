@@ -1,3 +1,19 @@
+//! A library for processing LAS files and generating GeoJSON polygons.
+//!
+//! This library provides functionality to process folders containing LAS files,
+//! generate polygons from the LAS data, and save the results as a GeoJSON file.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use las_poly::process_folder;
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     process_folder("path/to/folder", true, true, true)?;
+//!     Ok(())
+//! }
+//! ```
+
 use geo::{ConvexHull, Coord, LineString, Polygon};
 use las::Reader;
 use serde_json::Map;
@@ -12,6 +28,29 @@ use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
 use std::fs::File;
 use std::io::Write;
 
+/// Processes a folder containing LAS files and generates GeoJSON polygons.
+///
+/// # Arguments
+///
+/// * `folder_path` - The path to the folder containing LAS files.
+/// * `use_detailed_outline` - Whether to use detailed outlines for the polygons.
+/// * `group_by_folder` - Whether to group the polygons by folder.
+/// * `recurse` - Whether to recurse into subdirectories.
+///
+/// # Returns
+///
+/// This function returns a `Result` indicating success or failure.
+///
+/// # Examples
+///
+/// ```rust
+/// use las_poly::process_folder;
+///
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     process_folder("path/to/folder", true, true, true)?;
+///     Ok(())
+/// }
+/// ```
 pub fn process_folder(
     folder_path: &str,
     use_detailed_outline: bool,
@@ -156,7 +195,31 @@ pub fn process_folder(
 
 use std::path::Path;
 
-fn create_polygon(file_path: &str, use_detailed_outline: bool) -> Result<Feature, Box<dyn Error>> {
+/// Creates a polygon from a LAS file.
+///
+/// # Arguments
+///
+/// * `file_path` - The path to the LAS file.
+/// * `use_detailed_outline` - Whether to use detailed outlines for the polygons.
+///
+/// # Returns
+///
+/// This function returns a `Result` containing a `Feature` or an error.
+///
+/// # Examples
+///
+/// ```rust
+/// use las_poly::create_polygon;
+///
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let feature = create_polygon("tests/data/input1.las", true)?;
+///     Ok(())
+/// }
+/// ```
+pub fn create_polygon(
+    file_path: &str,
+    use_detailed_outline: bool,
+) -> Result<Feature, Box<dyn Error>> {
     // Open the LAS file
     let mut reader = Reader::from_path(file_path)?;
 
