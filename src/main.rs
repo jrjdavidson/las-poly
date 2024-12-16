@@ -1,3 +1,20 @@
+//! A command-line tool for processing LAS files and generating GeoJSON polygons.
+//!
+//! This tool processes folders containing LAS files, generates polygons from the LAS data,
+//! and saves the results as a GeoJSON file. It supports options for detailed outlines, grouping
+//! by folder, and recursion into subdirectories.
+//!
+//! # Usage
+//!
+//! ```sh
+//! las_poly --folder_path <path> [--use_detailed_outline] [--group_by_folder] [--recurse]
+//! ```
+//!
+//! # Examples
+//!
+//! ```sh
+//! las_poly --folder_path "path/to/folder" --use_detailed_outline --group_by_folder --recurse
+//! ```
 use clap::Parser;
 use std::process;
 
