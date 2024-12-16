@@ -14,7 +14,7 @@ use std::io::Write;
 
 pub fn process_folder(
     folder_path: &str,
-    use_simple_outline: bool,
+    use_detailed_outline: bool,
     group_by_folder: bool,
     recurse: bool, // New parameter to control recursion
 ) -> Result<(), Box<dyn Error>> {
@@ -49,11 +49,14 @@ pub fn process_folder(
         pool.execute(move || {
             println!("Creating read thread for {:?}", file_path);
 
-            if let Ok(feature) = create_polygon(&file_path, use_simple_outline) {
-                feature_tx.send(feature).unwrap();
-                println!("{:?} polygon successfully created", file_path);
-            } else {
-                println!("Error in thread {:?}", file_path);
+            match create_polygon(&file_path, use_detailed_outline) {
+                Ok(feature) => {
+                    feature_tx.send(feature).unwrap();
+                    println!("Successfully created polygon for :{:?} ", file_path);
+                }
+                Err(e) => {
+                    println!("Error in thread {:?}: {:?}", file_path, e);
+                }
             }
         });
     }
@@ -135,7 +138,7 @@ pub fn process_folder(
 
     // Create a FeatureCollection from all the merged features
     let feature_collection = FeatureCollection {
-        features: features,
+        features,
         bbox: None,
         foreign_members: None,
     };
@@ -153,12 +156,12 @@ pub fn process_folder(
 
 use std::path::Path;
 
-fn create_polygon(file_path: &str, use_simple_outline: bool) -> Result<Feature, Box<dyn Error>> {
+fn create_polygon(file_path: &str, use_detailed_outline: bool) -> Result<Feature, Box<dyn Error>> {
     // Open the LAS file
     let mut reader = Reader::from_path(file_path)?;
 
-    let geojson_polygon = if use_simple_outline {
-        // Use the header to create a simple outline
+    let geojson_polygon = if !use_detailed_outline {
+        // Use the header to create a faster outline of data
         let bounds = reader.header().bounds();
         let exterior_coords = vec![
             vec![bounds.min.x, bounds.min.y],
@@ -245,7 +248,7 @@ mod tests {
     #[test]
     fn test_create_polygon_simple_outline() {
         let file_path = "tests/data/input1.las";
-        let result = create_polygon(file_path, true);
+        let result = create_polygon(file_path, false);
         assert!(result.is_ok());
         let feature = result.unwrap();
         println!("{:?}", feature);
@@ -275,7 +278,7 @@ mod tests {
     #[test]
     fn test_create_polygon_convex_hull() {
         let file_path = "tests/data/input2.las";
-        let result = create_polygon(file_path, false);
+        let result = create_polygon(file_path, true);
         assert!(result.is_ok());
         let feature = result.unwrap();
         println!("{:?}", feature);
@@ -304,7 +307,7 @@ mod tests {
     #[test]
     fn test_process_folder_no_group_by_folder() {
         let folder_path = "tests/data";
-        let result = process_folder(folder_path, false, false, true);
+        let result = process_folder(folder_path, true, false, true);
         println!("{:?}", result);
         assert!(result.is_ok());
 
@@ -369,7 +372,7 @@ mod tests {
     #[test]
     fn test_integration_workflow_group_by_folder() {
         let folder_path = "tests/data";
-        let result = process_folder(folder_path, false, true, true);
+        let result = process_folder(folder_path, true, true, true);
         assert!(result.is_ok());
 
         // Check if the output file is created
