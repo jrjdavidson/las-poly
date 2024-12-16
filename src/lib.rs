@@ -352,14 +352,17 @@ mod tests {
             } else {
                 panic!("Expected a Polygon geometry for feature2");
             }
+            let expected_path = Path::new("tests/data/input2.las");
             assert_eq!(
                 feature2
                     .properties
                     .as_ref()
                     .unwrap()
                     .get("filename")
-                    .unwrap(),
-                "tests/data\\input2.las"
+                    .unwrap()
+                    .as_str()
+                    .map(Path::new),
+                Some(expected_path)
             );
         } else {
             panic!("Expected a FeatureCollection");
@@ -370,6 +373,7 @@ mod tests {
     }
 
     #[test]
+
     fn test_integration_workflow_group_by_folder() {
         let folder_path = "tests/data";
         let result = process_folder(folder_path, true, true, true);
@@ -392,7 +396,10 @@ mod tests {
             let feature = &fc.features[0];
             assert!(feature.properties.is_some());
             let properties = feature.properties.as_ref().unwrap();
-            assert_eq!(properties.get("folder_path").unwrap(), "tests/data");
+
+            let expected_path = Path::new("tests/data");
+            let folder_path = properties.get("folder_path").unwrap().as_str().unwrap();
+            assert_eq!(Path::new(folder_path), expected_path);
 
             // Check the geometry of the first feature
             assert!(feature.geometry.is_some());
