@@ -229,8 +229,8 @@ pub fn create_polygon(
         .header()
         .vlrs()
         .iter()
-        .find(|vlr| vlr.user_id() == "LASF_Projection" && vlr.record_id() == 34735)
-        .map(|vlr| String::from_utf8_lossy(vlr.data()).to_string());
+        .find(|vlr| vlr.user_id == "LASF_Projection" && vlr.record_id == 34735)
+        .map(|vlr| String::from_utf8_lossy(&vlr.data).to_string());
 
     // Create a Proj instance for transforming coordinates to EPSG:4326
     let to_epsg4326 = Proj::new_known_crs(
