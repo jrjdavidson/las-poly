@@ -427,14 +427,18 @@ mod tests {
             } else {
                 panic!("Expected a Polygon geometry for feature1");
             }
+            let expected_path: &Path = Path::new("tests/data/input1.las");
+
             assert_eq!(
                 feature1
                     .properties
                     .as_ref()
                     .unwrap()
                     .get("filename")
-                    .unwrap(),
-                "tests/data\\input1.las"
+                    .unwrap()
+                    .as_str()
+                    .map(Path::new),
+                Some(expected_path)
             );
 
             // Check the second feature
@@ -447,7 +451,7 @@ mod tests {
             } else {
                 panic!("Expected a Polygon geometry for feature2");
             }
-            let expected_path = Path::new("tests/data/input2.las");
+            let expected_path: &Path = Path::new("tests/data/input2.las");
             assert_eq!(
                 feature2
                     .properties
