@@ -193,6 +193,7 @@ pub fn process_folder(
     Ok(())
 }
 
+use proj::Proj;
 use std::path::Path;
 
 /// Creates a polygon from a LAS file.
@@ -223,23 +224,54 @@ pub fn create_polygon(
     // Open the LAS file
     let mut reader = Reader::from_path(file_path)?;
 
+    // Check the CRS of the LAS file
+    let crs = reader
+        .header()
+        .vlrs()
+        .iter()
+        .find(|vlr| vlr.user_id() == "LASF_Projection" && vlr.record_id() == 34735)
+        .map(|vlr| String::from_utf8_lossy(vlr.data()).to_string());
+
+    // Create a Proj instance for transforming coordinates to EPSG:4326
+    let to_epsg4326 = Proj::new_known_crs(
+        &crs.unwrap_or_else(|| "EPSG:4326".to_string()),
+        "EPSG:4326",
+        None,
+    )?;
+
     let geojson_polygon = if !use_detailed_outline {
         // Use the header to create a faster outline of data
         let bounds = reader.header().bounds();
         let exterior_coords = vec![
-            vec![bounds.min.x, bounds.min.y],
-            vec![bounds.max.x, bounds.min.y],
-            vec![bounds.max.x, bounds.max.y],
-            vec![bounds.min.x, bounds.max.y],
-            vec![bounds.min.x, bounds.min.y],
-        ];
+            to_epsg4326
+                .convert((bounds.min.x, bounds.min.y))
+                .unwrap_or((bounds.min.x, bounds.min.y)),
+            to_epsg4326
+                .convert((bounds.max.x, bounds.min.y))
+                .unwrap_or((bounds.max.x, bounds.min.y)),
+            to_epsg4326
+                .convert((bounds.max.x, bounds.max.y))
+                .unwrap_or((bounds.max.x, bounds.max.y)),
+            to_epsg4326
+                .convert((bounds.min.x, bounds.max.y))
+                .unwrap_or((bounds.min.x, bounds.max.y)),
+            to_epsg4326
+                .convert((bounds.min.x, bounds.min.y))
+                .unwrap_or((bounds.min.x, bounds.min.y)),
+        ]
+        .into_iter()
+        .map(|(x, y)| vec![x, y])
+        .collect();
         Value::Polygon(vec![exterior_coords])
     } else {
         // Collect points
         let points: Vec<Coord<f64>> = reader
             .points()
             .filter_map(Result::ok)
-            .map(|p| Coord { x: p.x, y: p.y })
+            .map(|p| {
+                let (x, y) = to_epsg4326.convert((p.x, p.y)).unwrap_or((p.x, p.y));
+                Coord { x, y }
+            })
             .collect();
 
         // Create a LineString from the points
