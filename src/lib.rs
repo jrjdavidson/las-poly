@@ -193,6 +193,87 @@ pub fn process_folder(
     Ok(())
 }
 
+#[derive(Debug)]
+enum Crs {
+    Wkt(String),
+    GeoTiff(Vec<u8>),
+}
+
+fn extract_crs(file_path: &str) -> Result<Option<Crs>, Box<dyn Error>> {
+    let mut reader = Reader::from_path(file_path)?;
+
+    let header = reader.header();
+
+    // Check if the CRS is WKT
+    if header.has_wkt_crs() {
+        // Look for WKT records in VLRs and EVLRs
+        if let Some(crs) = header
+            .vlrs()
+            .iter()
+            .chain(header.evlrs().iter())
+            .find_map(|vlr| match vlr.user_id.as_str() {
+                "LASF_Projection" => match vlr.record_id {
+                    2111 | 2112 => Some(Crs::Wkt(String::from_utf8_lossy(&vlr.data).to_string())),
+                    _ => None,
+                },
+                _ => None,
+            })
+        {
+            return Ok(Some(crs));
+        }
+    } else {
+        // Look for GeoTIFF records in VLRs only
+        if let Some(crs) = header
+            .vlrs()
+            .iter()
+            .find_map(|vlr| match vlr.user_id.as_str() {
+                "LASF_Projection" => match vlr.record_id {
+                    34735..=34737 => Some(Crs::GeoTiff(vlr.data.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+        {
+            return Ok(Some(crs));
+        }
+    }
+
+    // If no CRS information is found, attempt to guess CRS from point data
+    let points = reader.points().collect::<Result<Vec<_>, _>>()?;
+    if let Some(guessed_crs) = guess_crs_from_points(&points) {
+        return Ok(Some(guessed_crs));
+    }
+
+    Ok(None)
+}
+
+fn guess_crs_from_points(points: &[las::Point]) -> Option<Crs> {
+    // Implement your logic to guess CRS from point data here
+    // This is a placeholder implementation
+    if points.is_empty() {
+        return None;
+    }
+
+    // Example: Check if points are within a known CRS bounding box
+    let first_point = &points[0];
+    if first_point.x > -180.0
+        && first_point.x < 180.0
+        && first_point.y > -90.0
+        && first_point.y < 90.0
+    {
+        Some(Crs::Wkt("EPSG:4326".to_string()))
+    } else {
+        None
+    }
+}
+
+fn extract_crs_from_geotiff(data: &[u8]) -> Result<String, Box<dyn Error>> {
+    // Parse the GeoTIFF data to extract CRS information
+    // This is a simplified example, you may need to use a GeoTIFF parsing library for full implementation
+    let geotiff_string = String::from_utf8_lossy(data).to_string();
+    Ok(geotiff_string)
+}
+
 use proj::Proj;
 use std::path::Path;
 
@@ -222,15 +303,22 @@ pub fn create_polygon(
     use_detailed_outline: bool,
 ) -> Result<Feature, Box<dyn Error>> {
     // Open the LAS file
-    let mut reader = Reader::from_path(file_path)?;
-
-    // Check the CRS of the LAS file
-    let crs = reader
-        .header()
-        .vlrs()
-        .iter()
-        .find(|vlr| vlr.user_id == "LASF_Projection" && vlr.record_id == 34735)
-        .map(|vlr| String::from_utf8_lossy(&vlr.data).to_string());
+    let crs = match extract_crs(file_path)? {
+        // Check the CRS of the LAS file
+        Some(Crs::Wkt(wkt)) => {
+            println!("CRS found (WKT): {}", wkt);
+            Some(wkt)
+        }
+        Some(Crs::GeoTiff(data)) => {
+            let crs = extract_crs_from_geotiff(&data)?;
+            println!("CRS found (GeoTIFF): {}", crs);
+            Some(crs)
+        }
+        None => {
+            println!("No CRS found. Will assume EPSG:4326");
+            None
+        }
+    };
 
     // Create a Proj instance for transforming coordinates to EPSG:4326
     let to_epsg4326 = Proj::new_known_crs(
@@ -238,6 +326,8 @@ pub fn create_polygon(
         "EPSG:4326",
         None,
     )?;
+
+    let mut reader = Reader::from_path(file_path)?;
 
     let geojson_polygon = if !use_detailed_outline {
         // Use the header to create a faster outline of data
