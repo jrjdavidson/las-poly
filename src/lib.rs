@@ -14,6 +14,8 @@
 //! }
 //! ```
 
+mod crs_utils;
+use crs_utils::{extract_crs, extract_crs_from_geotiff, Crs};
 use geo::{ConvexHull, Coord, LineString, Polygon};
 use las::Reader;
 use serde_json::Map;
@@ -193,87 +195,6 @@ pub fn process_folder(
     Ok(())
 }
 
-#[derive(Debug)]
-enum Crs {
-    Wkt(String),
-    GeoTiff(Vec<u8>),
-}
-
-fn extract_crs(file_path: &str) -> Result<Option<Crs>, Box<dyn Error>> {
-    let mut reader = Reader::from_path(file_path)?;
-
-    let header = reader.header();
-
-    // Check if the CRS is WKT
-    if header.has_wkt_crs() {
-        // Look for WKT records in VLRs and EVLRs
-        if let Some(crs) = header
-            .vlrs()
-            .iter()
-            .chain(header.evlrs().iter())
-            .find_map(|vlr| match vlr.user_id.as_str() {
-                "LASF_Projection" => match vlr.record_id {
-                    2111 | 2112 => Some(Crs::Wkt(String::from_utf8_lossy(&vlr.data).to_string())),
-                    _ => None,
-                },
-                _ => None,
-            })
-        {
-            return Ok(Some(crs));
-        }
-    } else {
-        // Look for GeoTIFF records in VLRs only
-        if let Some(crs) = header
-            .vlrs()
-            .iter()
-            .find_map(|vlr| match vlr.user_id.as_str() {
-                "LASF_Projection" => match vlr.record_id {
-                    34735..=34737 => Some(Crs::GeoTiff(vlr.data.clone())),
-                    _ => None,
-                },
-                _ => None,
-            })
-        {
-            return Ok(Some(crs));
-        }
-    }
-
-    // If no CRS information is found, attempt to guess CRS from point data
-    let points = reader.points().collect::<Result<Vec<_>, _>>()?;
-    if let Some(guessed_crs) = guess_crs_from_points(&points) {
-        return Ok(Some(guessed_crs));
-    }
-
-    Ok(None)
-}
-
-fn guess_crs_from_points(points: &[las::Point]) -> Option<Crs> {
-    // Implement your logic to guess CRS from point data here
-    // This is a placeholder implementation
-    if points.is_empty() {
-        return None;
-    }
-
-    // Example: Check if points are within a known CRS bounding box
-    let first_point = &points[0];
-    if first_point.x > -180.0
-        && first_point.x < 180.0
-        && first_point.y > -90.0
-        && first_point.y < 90.0
-    {
-        Some(Crs::Wkt("EPSG:4326".to_string()))
-    } else {
-        None
-    }
-}
-
-fn extract_crs_from_geotiff(data: &[u8]) -> Result<String, Box<dyn Error>> {
-    // Parse the GeoTIFF data to extract CRS information
-    // This is a simplified example, you may need to use a GeoTIFF parsing library for full implementation
-    let geotiff_string = String::from_utf8_lossy(data).to_string();
-    Ok(geotiff_string)
-}
-
 use proj::Proj;
 use std::path::Path;
 
@@ -315,7 +236,7 @@ pub fn create_polygon(
             Some(crs)
         }
         None => {
-            println!("No CRS found. Will assume EPSG:4326");
+            println!("No CRS found. Will assume EPSG:4326 ( i.e.: will not transform data)");
             None
         }
     };
@@ -444,11 +365,11 @@ mod tests {
         if let geojson::Value::Polygon(polygon) = geometry.value {
             assert_eq!(polygon.len(), 1); // Ensure there's one polygon
             assert_eq!(polygon[0].len(), 5); // Ensure the polygon has 5 points (including the closing point)
-            assert_eq!(polygon[0][0], [1771068.3800000001, 5917200.0]); // Check the first point
-            assert_eq!(polygon[0][1], [1771359.999, 5917200.0]); // Check the second point
-            assert_eq!(polygon[0][2], [1771359.999, 5917354.289]); // Check the third point
-            assert_eq!(polygon[0][3], [1771068.3800000001, 5917354.289]); // Check the fourth point
-            assert_eq!(polygon[0][4], [1771068.3800000001, 5917200.0]); // Check the closing point
+            assert_eq!(polygon[0][0], [174.91941143911868, -36.87566977961954]);
+            assert_eq!(polygon[0][1], [174.92268177317487, -36.87561689771632]);
+            assert_eq!(polygon[0][2], [174.92264691906135, -36.874226826185556]);
+            assert_eq!(polygon[0][3], [174.91937664420047, -36.87427970543262]);
+            assert_eq!(polygon[0][4], [174.91941143911868, -36.87566977961954]);
         } else {
             panic!("Expected a Polygon geometry");
         }
@@ -473,12 +394,13 @@ mod tests {
         let geometry = feature.geometry.unwrap();
         if let geojson::Value::Polygon(polygon) = geometry.value {
             assert_eq!(polygon.len(), 1); // Ensure there's one polygon
-            assert_eq!(polygon[0].len(), 30); // Ensure the polygon has 30 points (including the closing point)
-            assert_eq!(polygon[0][0], [1771360.006, 5917201.84]); // Check the first point
-            assert_eq!(polygon[0][1], [1771360.026, 5917200.476]); // Check the second point
-            assert_eq!(polygon[0][2], [1771360.064, 5917200.029]); // Check the third point
-            assert_eq!(polygon[0][3], [1771360.307, 5917200.009]); // Check the fourth point
-            assert_eq!(polygon[0][29], [1771360.006, 5917201.84]); // Check the closing point
+            assert_eq!(polygon[0].len(), 42); // Ensure the polygon has 30 points (including the closing point)
+            assert_eq!(polygon[0][0], [174.92264798671903, -36.874263591726894]); // Check the first point
+            assert_eq!(polygon[0][1], [174.9226633846416, -36.87488308028734]); // Check the second point
+            assert_eq!(polygon[0][2], [174.92266550472735, -36.874967634735846]); // Check the third point
+            assert_eq!(polygon[0][3], [174.92267523622655, -36.875355747295856]); // Check the fourth point
+            assert_eq!(polygon[0][29], [174.92646576488872, -36.87489574250899]);
+        // Check the closing point
         } else {
             panic!("Expected a Polygon geometry");
         }
@@ -513,7 +435,7 @@ mod tests {
             let geometry1 = feature1.geometry.as_ref().unwrap();
             if let geojson::Value::Polygon(polygon) = &geometry1.value {
                 assert_eq!(polygon.len(), 1);
-                assert_eq!(polygon[0].len(), 23);
+                assert_eq!(polygon[0].len(), 24);
             } else {
                 panic!("Expected a Polygon geometry for feature1");
             }
@@ -537,7 +459,7 @@ mod tests {
             let geometry2 = feature2.geometry.as_ref().unwrap();
             if let geojson::Value::Polygon(polygon) = &geometry2.value {
                 assert_eq!(polygon.len(), 1);
-                assert_eq!(polygon[0].len(), 30); // Adjust the number of points as needed
+                assert_eq!(polygon[0].len(), 42); // Adjust the number of points as needed
             } else {
                 panic!("Expected a Polygon geometry for feature2");
             }
@@ -599,11 +521,17 @@ mod tests {
 
                 // Check the number of coordinates in the exterior ring
                 let exterior_ring = &coords[0];
-                assert_eq!(exterior_ring.len(), 25);
+                assert_eq!(exterior_ring.len(), 37);
 
                 // Check specific coordinates (e.g., the first and last)
-                assert_eq!(exterior_ring[0], vec![1771069.242, 5917200.036]);
-                assert_eq!(exterior_ring[24], vec![1771069.242, 5917200.036]);
+                assert_eq!(
+                    exterior_ring[0],
+                    vec![174.91942109783082, -36.87566929909413]
+                );
+                assert_eq!(
+                    exterior_ring[24],
+                    vec![174.9264345357605, -36.87488206215996]
+                );
             } else {
                 panic!("Expected Polygon geometry");
             }
