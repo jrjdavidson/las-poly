@@ -1,15 +1,24 @@
-use std::error::Error;
-
 use las::{Point, Reader};
 use rand::Rng;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Crs {
     Wkt(String),
     GeoTiff(Vec<u8>),
 }
 
-pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, Box<dyn Error>> {
+#[derive(Error, Debug)]
+pub enum CrsError {
+    #[error("Failed to read LAS file: {0}")]
+    LasError(#[from] las::Error),
+    #[error("Failed to parse GeoTIFF data: {0}")]
+    GeoTiffError(String),
+    #[error("Failed to guess CRS from points")]
+    GuessCrsError,
+}
+
+pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
     let reader = Reader::from_path(file_path)?;
 
     let header = reader.header();
@@ -58,8 +67,10 @@ pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, Box<dyn Error>> {
 
     Ok(None)
 }
-fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point>, Box<dyn Error>> {
+
+fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point>, CrsError> {
     let total_points = reader.header().number_of_points();
+    let num_points = num_points.min(total_points as usize); // Use the minimum between total_points and num_points
     let mut rng = rand::thread_rng();
     let mut points = Vec::with_capacity(num_points);
 
@@ -73,6 +84,7 @@ fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point
 
     Ok(points)
 }
+
 fn guess_crs_from_points(points: Vec<Point>) -> Option<Crs> {
     if points.is_empty() {
         return None;
@@ -96,9 +108,158 @@ fn guess_crs_from_points(points: Vec<Point>) -> Option<Crs> {
     None
 }
 
-pub fn extract_crs_from_geotiff(data: &[u8]) -> Result<String, Box<dyn Error>> {
+pub fn extract_crs_from_geotiff(data: &[u8]) -> Result<String, CrsError> {
     // Parse the GeoTIFF data to extract CRS information
     // This is a simplified example, you may need to use a GeoTIFF parsing library for full implementation
     let geotiff_string = String::from_utf8_lossy(data).to_string();
     Ok(geotiff_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use las::{Header, Point, Writer};
+    use std::fs;
+    use std::fs::File;
+    use std::io::Write;
+
+    // no easy way to write vlr data in las-rs, ignore until i figure out tests- maybe some smaple datasets?
+    #[test]
+    #[ignore]
+    fn test_extract_crs_wkt() {
+        // Create a mock LAS file with WKT CRS
+        let file_path = "tests/data/mock_wkt.las";
+        let header = Header::default();
+        let mut writer = Writer::from_path(file_path, header).unwrap();
+        writer.write_point(Default::default()).unwrap(); // Write an empty point record
+        writer.close().unwrap();
+        // Add WKT CRS to the header
+        let mut file = File::open(file_path).unwrap();
+        file.write_all(b"LASF_Projection2111EPSG:4326").unwrap();
+
+        let crs = extract_crs(file_path).unwrap();
+        assert!(matches!(crs, Some(Crs::Wkt(_))));
+        assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:4326".to_string()));
+
+        // Clean up
+        fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn test_extract_crs_geotiff() {
+        // Create a mock LAS file with GeoTIFF CRS
+        let file_path = "tests/data/mock_geotiff.las";
+        let header = Header::default();
+        {
+            let mut writer = Writer::from_path(file_path, header).unwrap();
+            writer.write_point(Default::default()).unwrap(); // Write an empty point record
+        }
+        // Add GeoTIFF CRS to the header
+        let mut file = File::open(file_path).unwrap();
+        file.write_all(b"LASF_Projection34735GeoTIFFData").unwrap();
+
+        let crs = extract_crs(file_path).unwrap();
+        assert!(matches!(crs, Some(Crs::GeoTiff(_))));
+        assert_eq!(crs.unwrap(), Crs::GeoTiff(b"GeoTIFFData".to_vec()));
+
+        // Clean up
+        fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    fn test_extract_crs_guess_epsg4326() {
+        // Create a mock LAS file with points in EPSG:4326 bounds
+        let file_path = "tests/data/mock_epsg4326.las";
+        let header = Header::default();
+        let mut writer = Writer::from_path(file_path, header).unwrap();
+        let points = vec![
+            Point {
+                x: 10.0,
+                y: 20.0,
+                z: 30.0,
+                ..Default::default()
+            },
+            Point {
+                x: -10.0,
+                y: -20.0,
+                z: -30.0,
+                ..Default::default()
+            },
+        ];
+        for point in points {
+            writer.write_point(point).unwrap();
+        }
+        writer.close().unwrap();
+        let crs = extract_crs(file_path).unwrap();
+        assert!(matches!(crs, Some(Crs::Wkt(_))));
+        assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:4326".to_string()));
+
+        // Clean up
+        fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn test_extract_crs_guess_epsg2193() {
+        // Create a mock LAS file with points in EPSG:2193 bounds
+        let file_path = "tests/data/mock_epsg2193.las";
+        let header = Header::default();
+        let mut writer = Writer::from_path(file_path, header).unwrap();
+
+        let points = vec![
+            Point {
+                x: 1000000.0,
+                y: 5000000.0,
+                z: 30.0,
+                ..Default::default()
+            },
+            Point {
+                x: 2000000.0,
+                y: 6000000.0,
+                z: -30.0,
+                ..Default::default()
+            },
+        ];
+
+        for point in points {
+            writer.write_point(point).unwrap();
+        }
+        writer.close().unwrap();
+        let crs = extract_crs(file_path).unwrap();
+        assert!(matches!(crs, Some(Crs::Wkt(_))));
+        assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:2193".to_string()));
+
+        // Clean up
+        fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    fn test_extract_crs_none() {
+        // Create a mock LAS file with no CRS information
+        let file_path = "tests/data/mock_none.las";
+        let header = Header::default();
+        let mut writer = Writer::from_path(file_path, header).unwrap();
+        writer
+            .write_point(Point {
+                x: 1000.0,
+                y: 5000.0,
+                z: 30.0,
+                ..Default::default()
+            })
+            .unwrap(); // Write an empty point record
+        writer.close().unwrap();
+        let crs = extract_crs(file_path).unwrap();
+        assert!(crs.is_none());
+
+        // Clean up
+        fs::remove_file(file_path).unwrap();
+    }
+
+    #[test]
+    fn test_extract_crs_from_geotiff() {
+        let data = b"GeoTIFFData";
+        let crs = extract_crs_from_geotiff(data).unwrap();
+        assert_eq!(crs, "GeoTIFFData".to_string());
+    }
 }
