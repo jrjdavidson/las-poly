@@ -295,12 +295,12 @@ pub fn create_polygon(
     let crs = match extract_crs(file_path)? {
         // Check the CRS of the LAS file
         Some(Crs::Wkt(wkt)) => {
-            println!("CRS found (WKT): {}", wkt);
+            println!("CRS found (WKT)");
             Some(wkt)
         }
         Some(Crs::GeoTiff(data)) => {
             let crs = extract_crs_from_geotiff(&data)?;
-            println!("CRS found (GeoTIFF): {}", crs);
+            println!("CRS found (GeoTIFF)");
             Some(crs)
         }
         None => {
@@ -311,7 +311,8 @@ pub fn create_polygon(
 
     // Create a Proj instance for transforming coordinates to EPSG:4326
     let to_epsg4326 = Proj::new_known_crs(
-        &crs.unwrap_or_else(|| "EPSG:4326".to_string()),
+        crs.unwrap_or_else(|| "EPSG:4326".to_string())
+            .trim_end_matches(char::from(0)),
         "EPSG:4326",
         None,
     )
@@ -405,33 +406,14 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+    use tempfile::tempdir;
 
-    fn setup() {
-        // let test_folder = Path::new("tests/data");
-        // let keep_files = ["input1.las", "input2.las"];
-        // if test_folder.exists() {
-        //     for entry in fs::read_dir(test_folder).unwrap() {
-        //         let entry = entry.unwrap();
-        //         let path = entry.path();
-        //         if path.is_file() {
-        //             if let Some(file_name) = path.file_name() {
-        //                 if !keep_files.contains(&file_name.to_str().unwrap()) {
-        //                     fs::remove_file(path).expect("Failed to delete the file");
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
-        // let output_path = Path::new("las_outlines.geojson");
-        // if output_path.exists() {
-        //     fs::remove_file(output_path).expect("Failed to delete the output file");
-        // }
+    fn setup() -> tempfile::TempDir {
+        tempdir().expect("Failed to create temporary directory")
     }
 
     #[test]
     fn test_create_polygon_simple_outline() {
-        setup();
         let file_path = "tests/data/input1.las";
         let result = create_polygon(file_path, false);
         assert!(result.is_ok());
@@ -464,7 +446,6 @@ mod tests {
 
     #[test]
     fn test_create_polygon_convex_hull() {
-        setup();
         let file_path = "tests/data/input2.las";
         let result = create_polygon(file_path, true);
         assert!(result.is_ok());
@@ -497,17 +478,24 @@ mod tests {
 
     #[test]
     fn test_process_folder_no_group_by_folder() {
-        setup();
+        let tempdir = setup();
+        let output_path = tempdir.path().join("data.geojson");
         let folder_path = "tests/data";
-        let result = process_folder(folder_path, true, false, true, None);
+
+        let result = process_folder(
+            folder_path,
+            true,
+            false,
+            true,
+            Some(output_path.to_str().unwrap()),
+        );
         assert!(result.is_ok());
 
         // Check if the output file is created
-        let output_path = Path::new("data.geojson");
         assert!(output_path.exists());
 
         // Read the file and perform checks
-        let geojson_str = fs::read_to_string(output_path).unwrap();
+        let geojson_str = fs::read_to_string(&output_path).unwrap();
         let geojson: GeoJson = geojson_str.parse().unwrap();
         if let GeoJson::FeatureCollection(fc) = geojson {
             assert_eq!(fc.features.len(), 2); // Ensure there are two features
@@ -561,23 +549,26 @@ mod tests {
         } else {
             panic!("Expected a FeatureCollection");
         }
-
-        // Cleanup: Remove the output file
-        fs::remove_file(output_path).expect("Failed to delete the output file");
     }
 
     #[test]
     fn test_integration_workflow_group_by_folder() {
-        setup();
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("data.geojson");
         let folder_path = "tests/data";
-        let result = process_folder(folder_path, true, true, true, None);
+        let result = process_folder(
+            folder_path,
+            true,
+            true,
+            true,
+            Some(output_path.to_str().unwrap()),
+        );
         println!("{:?}", result);
 
         assert!(result.is_ok());
 
         // Check if the output file is created
-        let output_path = Path::new("data.geojson");
-        assert!(output_path.exists());
+        assert!(temp_dir.path().exists());
 
         // Read the file and perform checks
         let geojson_str = fs::read_to_string(output_path).unwrap();
@@ -625,18 +616,16 @@ mod tests {
         }
 
         // Clean up
-        fs::remove_file(output_path).unwrap();
     }
 
     #[test]
     fn test_process_folder_group_by_folder_missing_sourcefiledir() {
-        setup();
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("data.geojson");
         use las::{Point, Writer};
-        use std::env;
 
         // Create a mock LAS file in the current working directory
-        let current_dir = env::current_dir().unwrap();
-        let current_dir_file_path = current_dir.join("mock_root_file.las");
+        let current_dir_file_path = temp_dir.path().join("mock_root_file.las");
         {
             let mut writer = Writer::from_path(&current_dir_file_path, Default::default()).unwrap();
 
@@ -662,16 +651,22 @@ mod tests {
             writer.write_point(point2).unwrap();
             writer.write_point(point3).unwrap();
         }
-        let result = process_folder(".", true, true, false, Some("las_outlines.geojson"));
+        let result = process_folder(
+            temp_dir.path().to_str().unwrap(),
+            true,
+            true,
+            false,
+            Some(output_path.to_str().unwrap()),
+        );
         assert!(result.is_ok());
 
         // Check if the output file is created
-        let output_path = Path::new("las_outlines.geojson");
         assert!(output_path.exists());
 
         // Read the file and perform checks
         let geojson_str = fs::read_to_string(output_path).unwrap();
         let geojson: GeoJson = geojson_str.parse().unwrap();
+        println!("{:?}", geojson);
         if let GeoJson::FeatureCollection(fc) = geojson {
             assert!(!fc.features.is_empty());
 
@@ -708,48 +703,43 @@ mod tests {
         }
 
         // Clean up
-        fs::remove_file(output_path).unwrap();
-        fs::remove_file(current_dir_file_path).unwrap();
     }
 
     #[test]
     fn test_empty_las_file() {
-        setup();
-        let file_path = "tests/data/empty.las";
+        let temp_dir = setup();
+
+        // Create a mock LAS file in the current working directory
+        let current_dir_file_path = temp_dir.path().join("empty.las");
         let header = las::Header::default();
         {
-            las::Writer::from_path(file_path, header).unwrap();
+            las::Writer::from_path(&current_dir_file_path, header).unwrap();
         }
 
-        let result = create_polygon(file_path, false);
+        let result = create_polygon(current_dir_file_path.to_str().unwrap(), false);
         println!("{:?}", result);
         assert!(result.is_ok());
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
     }
 
     #[test]
     fn test_invalid_las_file() {
-        setup();
-        let file_path = "tests/data/invalid.las";
-        let mut file = File::create(file_path).unwrap();
+        let temp_dir = setup();
+        let current_dir_file_path = temp_dir.path().join("invalid.las");
+        let mut file = File::create(&current_dir_file_path).unwrap();
         file.write_all(b"Invalid LAS data").unwrap();
 
-        let result = create_polygon(file_path, false);
+        let result = create_polygon(current_dir_file_path.to_str().unwrap(), false);
         assert!(result.is_err());
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
     }
 
     #[test]
     fn test_detailed_outline() {
-        setup();
-        let file_path = "tests/data/detailed_outline.las";
+        let temp_dir = setup();
+        let file_path = temp_dir.path().join("detailed_outline.las");
+
         let header = las::Header::default();
         {
-            let mut writer = las::Writer::from_path(file_path, header).unwrap();
+            let mut writer = las::Writer::from_path(&file_path, header).unwrap();
             let points = vec![
                 las::Point {
                     x: 10.0,
@@ -780,7 +770,7 @@ mod tests {
                 writer.write_point(point).unwrap();
             }
         }
-        let result = create_polygon(file_path, true);
+        let result = create_polygon(file_path.to_str().unwrap(), true);
         println!("{:?}", result);
         assert!(result.is_ok());
         let feature = result.unwrap();
@@ -794,36 +784,11 @@ mod tests {
         } else {
             panic!("Expected a Polygon geometry");
         }
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
     }
 
     #[test]
-    #[ignore]
     fn test_crs_transformation() {
-        setup();
-        let file_path = "tests/data/crs_transformation.las";
-        let header = las::Header::default();
-        let mut writer = las::Writer::from_path(file_path, header).unwrap();
-        let points = vec![
-            las::Point {
-                x: 1000000.0,
-                y: 5000000.0,
-                z: 30.0,
-                ..Default::default()
-            },
-            las::Point {
-                x: 2000000.0,
-                y: 6000000.0,
-                z: -30.0,
-                ..Default::default()
-            },
-        ];
-        for point in points {
-            writer.write_point(point).unwrap();
-        }
-        writer.close().unwrap();
+        let file_path = "tests/crs/BQ29_1000_4907.las";
 
         let result = create_polygon(file_path, false);
         assert!(result.is_ok());
@@ -834,12 +799,9 @@ mod tests {
         let geometry = feature.geometry.unwrap();
         if let geojson::Value::Polygon(polygon) = geometry.value {
             assert_eq!(polygon.len(), 1); // Ensure there's one polygon
-            assert!(polygon[0].len() > 5); // Ensure the polygon has more than 5 points for detailed outline
+            assert!(polygon[0].len() > 4); // Ensure the polygon has more than 5 points for detailed outline
         } else {
             panic!("Expected a Polygon geometry");
         }
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
     }
 }

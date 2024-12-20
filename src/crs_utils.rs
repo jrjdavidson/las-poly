@@ -11,11 +11,11 @@ pub enum Crs {
 #[derive(Error, Debug)]
 pub enum CrsError {
     #[error("Failed to read LAS file: {0}")]
-    LasError(#[from] las::Error),
+    Las(#[from] las::Error),
     #[error("Failed to parse GeoTIFF data: {0}")]
-    GeoTiffError(String),
+    GeoTiff(String),
     #[error("Failed to guess CRS from points")]
-    GuessCrsError,
+    Guess,
 }
 
 pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
@@ -123,28 +123,6 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    // no easy way to write vlr data in las-rs, ignore until i figure out tests- maybe some smaple datasets?
-    #[test]
-    #[ignore]
-    fn test_extract_crs_wkt() {
-        // Create a mock LAS file with WKT CRS
-        let file_path = "tests/data/mock_wkt.las";
-        let header = Header::default();
-        let mut writer = Writer::from_path(file_path, header).unwrap();
-        writer.write_point(Default::default()).unwrap(); // Write an empty point record
-        writer.close().unwrap();
-        // Add WKT CRS to the header
-        let mut file = File::open(file_path).unwrap();
-        file.write_all(b"LASF_Projection2111EPSG:4326").unwrap();
-
-        let crs = extract_crs(file_path).unwrap();
-        assert!(matches!(crs, Some(Crs::Wkt(_))));
-        assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:4326".to_string()));
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
-    }
-
     #[test]
     #[ignore]
     fn test_extract_crs_geotiff() {
@@ -200,41 +178,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn test_extract_crs_guess_epsg2193() {
-        // Create a mock LAS file with points in EPSG:2193 bounds
-        let file_path = "tests/data/mock_epsg2193.las";
-        let header = Header::default();
-        let mut writer = Writer::from_path(file_path, header).unwrap();
-
-        let points = vec![
-            Point {
-                x: 1000000.0,
-                y: 5000000.0,
-                z: 30.0,
-                ..Default::default()
-            },
-            Point {
-                x: 2000000.0,
-                y: 6000000.0,
-                z: -30.0,
-                ..Default::default()
-            },
-        ];
-
-        for point in points {
-            writer.write_point(point).unwrap();
-        }
-        writer.close().unwrap();
-        let crs = extract_crs(file_path).unwrap();
-        assert!(matches!(crs, Some(Crs::Wkt(_))));
-        assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:2193".to_string()));
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
-    }
-
-    #[test]
     fn test_extract_crs_none() {
         // Create a mock LAS file with no CRS information
         let file_path = "tests/data/mock_none.las";
@@ -261,5 +204,63 @@ mod tests {
         let data = b"GeoTIFFData";
         let crs = extract_crs_from_geotiff(data).unwrap();
         assert_eq!(crs, "GeoTIFFData".to_string());
+    }
+
+    #[test]
+    fn test_extract_crs_from_wkt() {
+        use proj::Proj;
+
+        // Test for VLRs data in the specified LAS file
+        let file_path = "tests/crs/BQ29_1000_4907.las";
+        let crs = extract_crs(file_path).unwrap();
+        assert!(crs.is_some());
+
+        if let Some(Crs::Wkt(wkt)) = crs {
+            assert!(!wkt.is_empty());
+
+            // Check if proj accepts the WKT
+            let proj = Proj::new(wkt.trim_end_matches(char::from(0)));
+            println!("{:?}", proj);
+            assert!(proj.is_ok());
+        } else if let Some(Crs::GeoTiff(data)) = crs {
+            println!("CRS found (GeoTIFF): {:?}", data);
+            assert!(!data.is_empty());
+
+            // Check if proj accepts the GeoTIFF data
+            let crs_string = extract_crs_from_geotiff(&data).unwrap();
+            let proj = Proj::new(&crs_string);
+            assert!(proj.is_ok());
+        } else {
+            panic!("Expected CRS information in VLRs");
+        }
+    }
+    #[test]
+    fn test_extract_crs_from_geoTifff() {
+        use proj::Proj;
+
+        // Test for VLRs data in the specified LAS file
+        let file_path = "tests/crs/Rolleston_SecondSortie.las";
+        let crs = extract_crs(file_path).unwrap();
+        assert!(crs.is_some());
+
+        if let Some(Crs::Wkt(wkt)) = crs {
+            assert!(!wkt.is_empty());
+
+            // Check if proj accepts the WKT
+            let proj = Proj::new(wkt.trim_end_matches(char::from(0)));
+            println!("{:?}", proj);
+            assert!(proj.is_ok());
+        } else if let Some(Crs::GeoTiff(data)) = crs {
+            println!("CRS found (GeoTIFF): {:?}", data);
+            assert!(!data.is_empty());
+
+            // Check if proj accepts the GeoTIFF data
+            let crs_string = extract_crs_from_geotiff(&data).unwrap();
+            let proj = Proj::new(&crs_string.trim_end_matches(char::from(0)));
+            println!("{:?}", proj);
+            assert!(proj.is_ok());
+        } else {
+            panic!("Expected CRS information in VLRs");
+        }
     }
 }
