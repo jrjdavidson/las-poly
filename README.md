@@ -14,6 +14,7 @@ A command-line tool for processing LAS files and generating GeoJSON polygons.
 
 ## Installation
 
+for projection branch: setup proj crate- might need local install `libproj-dev` and `clang` etc.
 Clone this repository and use it as a library, or as command line tool by building the project. 
 
 ## Usage
