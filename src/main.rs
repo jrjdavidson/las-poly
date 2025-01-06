@@ -29,6 +29,7 @@ use std::process;
 struct Args {
     /// Path to the folder containing LAS files
     folder_path: String,
+    name: Option<String>,
 
     /// Use a detailed outline. The default simple outline uses the header information for the data bounds, this option will read every point and create a convex hull around points.
     #[arg(short, long)]
@@ -50,6 +51,7 @@ fn main() {
         args.use_detailed_outline,
         args.group_by_folder,
         args.recurse,
+        args.name.as_deref(),
     ) {
         eprintln!("Error: {}", e);
         process::exit(1);

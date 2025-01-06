@@ -1,6 +1,6 @@
 [package]
 name = "las-poly"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
@@ -10,6 +10,10 @@ geojson = "0.24.1"
 las = "0.9.1"
 num_cpus = "1.16.0"
 proj = "0.27.2"
+rand = "0.8.5"
+serde = "1.0.216"
 serde_json = "1.0.128"
+tempfile = "3.14.0"
+thiserror = "2.0.8"
 threadpool = "1.8.1"
 walkdir = "2.5.0"
