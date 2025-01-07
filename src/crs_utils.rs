@@ -137,7 +137,6 @@ pub fn extract_crs_from_geotiff(
         .chunks_exact(2)
         .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
         .collect();
-    println!("{:?}", geo_key_directory_tag);
     let mut proj_string = String::new();
     let num_keys = geo_key_directory_tag[3] as usize;
     for i in 0..num_keys {
