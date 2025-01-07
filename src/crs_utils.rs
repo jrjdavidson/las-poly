@@ -261,6 +261,38 @@ mod tests {
         }
     }
     #[test]
+    #[ignore]
+    fn test_extract_crs() {
+        use proj::Proj;
+
+        // Test for VLRs data in the specified LAS file
+        let file_path = "tests/crs/BLOCK_129.las";
+        let crs = extract_crs(file_path).unwrap();
+        assert!(crs.is_some());
+
+        if let Some(Crs::Wkt(wkt)) = crs {
+            assert!(!wkt.is_empty());
+
+            // Check if proj accepts the WKT
+            let proj = Proj::new(wkt.trim_end_matches(char::from(0)));
+            println!("{:?}", proj);
+            assert!(proj.is_ok());
+        } else if let Some(Crs::GeoTiff(data1, data2, data3)) = crs {
+            println!("CRS found (GeoTIFF): {:?}", data1);
+            assert!(!data1.is_empty());
+
+            // Check if proj accepts the GeoTIFF data
+            let crs_string =
+                extract_crs_from_geotiff(&data1, data2.as_deref(), data3.as_deref()).unwrap();
+            println!("{:?}", crs_string);
+            let proj = Proj::new_known_crs(&crs_string, "EPSG:4326", None);
+            println!("{:?}", proj);
+            assert!(proj.is_ok());
+        } else {
+            panic!("Expected CRS information in VLRs");
+        }
+    }
+    #[test]
     fn test_extract_crs_from_geo_tiff() {
         use proj::Proj;
 
