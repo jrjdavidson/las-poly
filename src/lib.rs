@@ -304,7 +304,10 @@ pub fn create_polygon(
             Some(crs)
         }
         None => {
-            println!("No CRS found. Will assume EPSG:4326 (i.e., will not transform data)");
+            println!(
+                "No CRS found for {}. Will assume EPSG:4326 (i.e., will not transform data)",
+                file_path
+            );
             None
         }
     };
