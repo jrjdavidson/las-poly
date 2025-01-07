@@ -105,7 +105,7 @@ pub fn process_folder(
     for file_path in rx {
         let feature_tx = feature_tx.clone();
         pool.execute(move || {
-            println!("Creating read thread for {:?}", file_path);
+            // println!("Creating read thread for {:?}", file_path);
 
             match create_polygon(&file_path, use_detailed_outline) {
                 Ok(feature) => {
@@ -294,10 +294,7 @@ pub fn create_polygon(
     // Open the LAS file
     let crs = match extract_crs(file_path)? {
         // Check the CRS of the LAS file
-        Some(Crs::Wkt(wkt)) => {
-            println!("CRS found (WKT)");
-            Some(wkt)
-        }
+        Some(Crs::Wkt(wkt)) => Some(wkt),
         Some(Crs::GeoTiff(geo_key_directory, geo_double_params, geo_ascii_params)) => {
             let crs = extract_crs_from_geotiff(
                 &geo_key_directory,
