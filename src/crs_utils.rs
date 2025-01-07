@@ -296,7 +296,7 @@ mod tests {
         use proj::Proj;
 
         // Test for VLRs data in the specified LAS file
-        let file_path = "tests/crs/Rolleston_SecondSortie.las";
+        let file_path = "tests/crs/merged.las";
         let crs = extract_crs(file_path).unwrap();
         assert!(crs.is_some());
 
