@@ -298,9 +298,12 @@ pub fn create_polygon(
             println!("CRS found (WKT)");
             Some(wkt)
         }
-        Some(Crs::GeoTiff(data)) => {
-            let crs = extract_crs_from_geotiff(&data)?;
-            println!("CRS found (GeoTIFF)");
+        Some(Crs::GeoTiff(geo_key_directory, geo_double_params, geo_ascii_params)) => {
+            let crs = extract_crs_from_geotiff(
+                &geo_key_directory,
+                geo_double_params.as_deref(),
+                geo_ascii_params.as_deref(),
+            )?;
             Some(crs)
         }
         None => {
