@@ -296,26 +296,23 @@ pub fn create_polygon(
         // Check the CRS of the LAS file
         Some(Crs::Wkt(wkt)) => Some(wkt),
         Some(Crs::GeoTiff(geo_key_directory, geo_double_params, geo_ascii_params)) => {
-            let crs = extract_crs_from_geotiff(
+            Some(extract_crs_from_geotiff(
                 &geo_key_directory,
                 geo_double_params.as_deref(),
                 geo_ascii_params.as_deref(),
-            )?;
-            Some(crs)
+            )?)
         }
         None => {
-            println!(
-                "No CRS found for {}. Will assume EPSG:4326 (i.e., will not transform data)",
-                file_path
-            );
+            println!("No CRS found for {}. Will not add data.", file_path);
             None
         }
     };
-
+    if crs.is_none() {
+        return Err(PolygonError::CrsError(CrsError::MissingCrs));
+    };
     // Create a Proj instance for transforming coordinates to EPSG:4326
     let to_epsg4326 = Proj::new_known_crs(
-        crs.unwrap_or_else(|| "EPSG:4326".to_string())
-            .trim_end_matches(char::from(0)),
+        crs.unwrap().trim_end_matches(char::from(0)),
         "EPSG:4326",
         None,
     )
@@ -721,7 +718,7 @@ mod tests {
 
         let result = create_polygon(current_dir_file_path.to_str().unwrap(), false);
         println!("{:?}", result);
-        assert!(result.is_ok());
+        assert!(result.is_err());
     }
 
     #[test]
@@ -757,9 +754,9 @@ mod tests {
                     ..Default::default()
                 },
                 las::Point {
-                    x: -100.0,
-                    y: -300.0,
-                    z: -400.0,
+                    x: -10.0,
+                    y: 30.0,
+                    z: -40.0,
                     ..Default::default()
                 },
                 las::Point {

@@ -22,6 +22,8 @@ pub enum CrsError {
     GeoKeyDirectoryTagError(String),
     #[error("CRS information not found in GeoTIFF")]
     CrsNotFoundError,
+    #[error("CRS information not found in file")]
+    MissingCrs,
 }
 
 pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
@@ -183,39 +185,6 @@ mod tests {
     use super::*;
     use las::{Header, Point, Writer};
     use std::fs;
-    use std::fs::File;
-    use std::io::Write;
-
-    #[test]
-    #[ignore]
-    fn test_extract_crs_geotiff() {
-        // Create a mock LAS file with GeoTIFF CRS
-        let file_path = "tests/data/mock_geotiff.las";
-        let header = Header::default();
-        {
-            let mut writer = Writer::from_path(file_path, header).unwrap();
-            writer.write_point(Default::default()).unwrap(); // Write an empty point record
-        }
-        // Add GeoTIFF CRS to the header
-        let mut file = File::open(file_path).unwrap();
-        file.write_all(b"LASF_Projection34735GeoTIFFData").unwrap();
-        file.write_all(b"LASF_Projection34736GeoTIFFData").unwrap();
-        file.write_all(b"LASF_Projection34737GeoTIFFData").unwrap();
-
-        let crs = extract_crs(file_path).unwrap();
-        assert!(matches!(crs, Some(Crs::GeoTiff(_, _, _))));
-        assert_eq!(
-            crs.unwrap(),
-            Crs::GeoTiff(
-                b"GeoTIFFData".to_vec(),
-                Some(b"GeoTIFFData".to_vec()),
-                Some(b"GeoTIFFData".to_vec())
-            )
-        );
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
-    }
 
     #[test]
     fn test_extract_crs_guess_epsg4326() {
@@ -314,5 +283,14 @@ mod tests {
         } else {
             panic!("Expected CRS information in VLRs");
         }
+    }
+    #[test]
+
+    fn test_unexpected_crs() {
+        // Test for VLRs data in the specified LAS file
+        let file_path = "tests/crs/BLK002598.las";
+        let crs = extract_crs(file_path).unwrap();
+        println!("{:?}", crs);
+        assert!(crs.is_none());
     }
 }
