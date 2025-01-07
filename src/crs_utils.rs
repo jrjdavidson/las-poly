@@ -5,7 +5,7 @@ use thiserror::Error;
 #[derive(Debug, PartialEq)]
 pub enum Crs {
     Wkt(String),
-    GeoTiff(Vec<u8>),
+    GeoTiff(Vec<u8>, Option<Vec<u8>>, Option<Vec<u8>>), // Store all three tags
 }
 
 #[derive(Error, Debug)]
@@ -16,6 +16,12 @@ pub enum CrsError {
     GeoTiff(String),
     #[error("Failed to guess CRS from points")]
     Guess,
+    #[error("Failed to create Proj instance: {0}")]
+    DecoderError(String),
+    #[error("Failed to read GeoKeyDirectoryTag: {0}")]
+    GeoKeyDirectoryTagError(String),
+    #[error("CRS information not found in GeoTIFF")]
+    CrsNotFoundError,
 }
 
 pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
@@ -42,17 +48,27 @@ pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
         }
     } else {
         // Look for GeoTIFF records in VLRs only
-        if let Some(crs) = header
-            .vlrs()
-            .iter()
-            .find_map(|vlr| match vlr.user_id.as_str() {
-                "LASF_Projection" => match vlr.record_id {
-                    34735..=34737 => Some(Crs::GeoTiff(vlr.data.clone())),
-                    _ => None,
-                },
-                _ => None,
-            })
-        {
+        let mut geo_key_directory_tag = None;
+        let mut geo_double_params_tag = None;
+        let mut geo_ascii_params_tag = None;
+
+        for vlr in header.vlrs().iter() {
+            if vlr.user_id.as_str() == "LASF_Projection" {
+                match vlr.record_id {
+                    34735 => geo_key_directory_tag = Some(vlr.data.clone()),
+                    34736 => geo_double_params_tag = Some(vlr.data.clone()),
+                    34737 => geo_ascii_params_tag = Some(vlr.data.clone()),
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some(geo_key_directory) = geo_key_directory_tag {
+            let crs = Crs::GeoTiff(
+                geo_key_directory,
+                geo_double_params_tag,
+                geo_ascii_params_tag,
+            );
             return Ok(Some(crs));
         }
     }
@@ -108,13 +124,60 @@ fn guess_crs_from_points(points: Vec<Point>) -> Option<Crs> {
     None
 }
 
-pub fn extract_crs_from_geotiff(data: &[u8]) -> Result<String, CrsError> {
-    // Parse the GeoTIFF data to extract CRS information
-    // This is a simplified example, you may need to use a GeoTIFF parsing library for full implementation
-    let geotiff_string = String::from_utf8_lossy(data).to_string();
-    Ok(geotiff_string)
-}
+pub fn extract_crs_from_geotiff(
+    geo_key_directory: &[u8],
+    geo_double_params: Option<&[u8]>,
+    geo_ascii_params: Option<&[u8]>,
+) -> Result<String, CrsError> {
+    // Parse the GeoKeyDirectoryTag
 
+    let geo_key_directory_tag: Vec<u16> = geo_key_directory
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+        .collect();
+    println!("{:?}", geo_key_directory_tag);
+    let mut proj_string = String::new();
+    let num_keys = geo_key_directory_tag[3] as usize;
+    for i in 0..num_keys {
+        let key_id = geo_key_directory_tag[4 + i * 4];
+        let tiff_tag_location = geo_key_directory_tag[5 + i * 4];
+        let count = geo_key_directory_tag[6 + i * 4];
+        let value_offset = geo_key_directory_tag[7 + i * 4];
+
+        match key_id {
+            2048 => {
+                // GeographicTypeGeoKey
+                if value_offset != 32767 {
+                    proj_string = format!("EPSG:{} ", value_offset);
+                }
+            }
+            3072 => {
+                // ProjectedCSTypeGeoKey
+                if value_offset != 32767 {
+                    proj_string = format!("EPSG:{} ", value_offset);
+                }
+            }
+
+            1026 => {
+                if tiff_tag_location == 34736 {
+                    if let Some(geo_double_params) = geo_double_params {
+                        let value = geo_double_params[value_offset as usize];
+                        proj_string = format!("{}", value);
+                    }
+                } else if tiff_tag_location == 34737 {
+                    if let Some(geo_ascii_params) = geo_ascii_params {
+                        let value = &geo_ascii_params
+                            [value_offset as usize..(value_offset + count - 1) as usize];
+                        proj_string = String::from_utf8_lossy(value).to_string();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(proj_string.trim().to_string())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,10 +199,19 @@ mod tests {
         // Add GeoTIFF CRS to the header
         let mut file = File::open(file_path).unwrap();
         file.write_all(b"LASF_Projection34735GeoTIFFData").unwrap();
+        file.write_all(b"LASF_Projection34736GeoTIFFData").unwrap();
+        file.write_all(b"LASF_Projection34737GeoTIFFData").unwrap();
 
         let crs = extract_crs(file_path).unwrap();
-        assert!(matches!(crs, Some(Crs::GeoTiff(_))));
-        assert_eq!(crs.unwrap(), Crs::GeoTiff(b"GeoTIFFData".to_vec()));
+        assert!(matches!(crs, Some(Crs::GeoTiff(_, _, _))));
+        assert_eq!(
+            crs.unwrap(),
+            Crs::GeoTiff(
+                b"GeoTIFFData".to_vec(),
+                Some(b"GeoTIFFData".to_vec()),
+                Some(b"GeoTIFFData".to_vec())
+            )
+        );
 
         // Clean up
         fs::remove_file(file_path).unwrap();
@@ -200,13 +272,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_crs_from_geotiff() {
-        let data = b"GeoTIFFData";
-        let crs = extract_crs_from_geotiff(data).unwrap();
-        assert_eq!(crs, "GeoTIFFData".to_string());
-    }
-
-    #[test]
     fn test_extract_crs_from_wkt() {
         use proj::Proj;
 
@@ -222,20 +287,12 @@ mod tests {
             let proj = Proj::new(wkt.trim_end_matches(char::from(0)));
             println!("{:?}", proj);
             assert!(proj.is_ok());
-        } else if let Some(Crs::GeoTiff(data)) = crs {
-            println!("CRS found (GeoTIFF): {:?}", data);
-            assert!(!data.is_empty());
-
-            // Check if proj accepts the GeoTIFF data
-            let crs_string = extract_crs_from_geotiff(&data).unwrap();
-            let proj = Proj::new(&crs_string);
-            assert!(proj.is_ok());
         } else {
             panic!("Expected CRS information in VLRs");
         }
     }
     #[test]
-    fn test_extract_crs_from_geoTifff() {
+    fn test_extract_crs_from_geo_tiff() {
         use proj::Proj;
 
         // Test for VLRs data in the specified LAS file
@@ -243,20 +300,15 @@ mod tests {
         let crs = extract_crs(file_path).unwrap();
         assert!(crs.is_some());
 
-        if let Some(Crs::Wkt(wkt)) = crs {
-            assert!(!wkt.is_empty());
-
-            // Check if proj accepts the WKT
-            let proj = Proj::new(wkt.trim_end_matches(char::from(0)));
-            println!("{:?}", proj);
-            assert!(proj.is_ok());
-        } else if let Some(Crs::GeoTiff(data)) = crs {
-            println!("CRS found (GeoTIFF): {:?}", data);
-            assert!(!data.is_empty());
+        if let Some(Crs::GeoTiff(data1, data2, data3)) = crs {
+            println!("CRS found (GeoTIFF): {:?}", data1);
+            assert!(!data1.is_empty());
 
             // Check if proj accepts the GeoTIFF data
-            let crs_string = extract_crs_from_geotiff(&data).unwrap();
-            let proj = Proj::new(&crs_string.trim_end_matches(char::from(0)));
+            let crs_string =
+                extract_crs_from_geotiff(&data1, data2.as_deref(), data3.as_deref()).unwrap();
+            println!("{:?}", crs_string);
+            let proj = Proj::new_known_crs(&crs_string, "EPSG:4326", None);
             println!("{:?}", proj);
             assert!(proj.is_ok());
         } else {
