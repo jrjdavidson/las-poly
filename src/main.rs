@@ -7,7 +7,7 @@
 //! # Usage
 //!
 //! ```sh
-//! las_poly --folder_path <path> [--use_detailed_outline] [--group_by_folder] [--recurse]
+//! las_poly --folder_path <path> [--use_detailed_outline] [--group_by_folder] [--recurse] [--guess_crs]
 //! ```
 //!
 //! # Examples
@@ -42,6 +42,10 @@ struct Args {
     /// Recurse into subfolders
     #[arg(short, long)]
     recurse: bool,
+
+    /// Guess the CRS of the las file is the WKT or Geotiff header informatiion is not present.
+    #[arg(short, long)]
+    guess_crs: bool,
 }
 
 fn main() {
@@ -51,6 +55,7 @@ fn main() {
         args.use_detailed_outline,
         args.group_by_folder,
         args.recurse,
+        args.guess_crs,
         args.name.as_deref(),
     ) {
         eprintln!("Error: {}", e);

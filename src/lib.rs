@@ -9,7 +9,7 @@
 //! use las_poly::process_folder;
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     process_folder("path/to/folder", true, true, true, None)?;
+//!     process_folder("path/to/folder", true, true, true,true, None)?;
 //!     Ok(())
 //! }
 //! ```
@@ -40,6 +40,7 @@ use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
 /// * `use_detailed_outline` - Whether to use detailed outlines for the polygons.
 /// * `group_by_folder` - Whether to group the polygons by folder.
 /// * `recurse` - Whether to recurse into subdirectories.
+/// * `guess_crs` - Whether to guess the crs based on a random sample of 10 points.
 /// * `output_file` - Optional output file name. If not provided, a default name will be used.
 ///
 /// # Returns
@@ -52,7 +53,7 @@ use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
 /// use las_poly::process_folder;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     process_folder("path/to/folder", true, true, true, Some("output.geojson"))?;
+///     process_folder("path/to/folder", true, true, true,true, Some("output.geojson"))?;
 ///     Ok(())
 /// }
 /// ```
@@ -73,8 +74,9 @@ pub fn process_folder(
     folder_path: &str,
     use_detailed_outline: bool,
     group_by_folder: bool,
-    recurse: bool,             // New parameter to control recursion
-    output_file: Option<&str>, // New parameter for output file name
+    recurse: bool,
+    guess_crs: bool,
+    output_file: Option<&str>,
 ) -> Result<(), PolygonError> {
     let num_threads = num_cpus::get();
     println!("Number of threads used: {:?}", num_threads);
@@ -107,7 +109,7 @@ pub fn process_folder(
         pool.execute(move || {
             // println!("Creating read thread for {:?}", file_path);
 
-            match create_polygon(&file_path, use_detailed_outline) {
+            match create_polygon(&file_path, use_detailed_outline, guess_crs) {
                 Ok(feature) => {
                     feature_tx.send(feature).unwrap();
                     println!("Successfully created polygon for :{:?} ", file_path);
@@ -240,7 +242,7 @@ use proj::Proj;
 /// use las_poly::create_polygon;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let feature = create_polygon("tests/data/input1.las", true)?;
+///     let feature = create_polygon("tests/data/input1.las", true, true)?;
 ///     Ok(())
 /// }
 /// ```
@@ -290,9 +292,10 @@ impl FeatureProperties<'_> {
 pub fn create_polygon(
     file_path: &str,
     use_detailed_outline: bool,
+    guess_crs: bool,
 ) -> Result<Feature, PolygonError> {
     // Open the LAS file
-    let crs = match extract_crs(file_path)? {
+    let crs = match extract_crs(file_path, guess_crs)? {
         // Check the CRS of the LAS file
         Some(Crs::Wkt(wkt)) => Some(wkt),
         Some(Crs::GeoTiff(geo_key_directory, geo_double_params, geo_ascii_params)) => {
@@ -415,7 +418,7 @@ mod tests {
     #[test]
     fn test_create_polygon_simple_outline() {
         let file_path = "tests/data/input1.las";
-        let result = create_polygon(file_path, false);
+        let result = create_polygon(file_path, false, true);
         assert!(result.is_ok());
         let feature = result.unwrap();
         assert!(feature.geometry.is_some());
@@ -447,7 +450,7 @@ mod tests {
     #[test]
     fn test_create_polygon_convex_hull() {
         let file_path = "tests/data/input2.las";
-        let result = create_polygon(file_path, true);
+        let result = create_polygon(file_path, true, true);
         assert!(result.is_ok());
         let feature = result.unwrap();
         assert!(feature.geometry.is_some());
@@ -486,6 +489,7 @@ mod tests {
             folder_path,
             true,
             false,
+            true,
             true,
             Some(output_path.to_str().unwrap()),
         );
@@ -558,6 +562,7 @@ mod tests {
         let folder_path = "tests/data";
         let result = process_folder(
             folder_path,
+            true,
             true,
             true,
             true,
@@ -656,6 +661,7 @@ mod tests {
             true,
             true,
             false,
+            true,
             Some(output_path.to_str().unwrap()),
         );
         assert!(result.is_ok());
@@ -716,7 +722,7 @@ mod tests {
             las::Writer::from_path(&current_dir_file_path, header).unwrap();
         }
 
-        let result = create_polygon(current_dir_file_path.to_str().unwrap(), false);
+        let result = create_polygon(current_dir_file_path.to_str().unwrap(), false, true);
         println!("{:?}", result);
         assert!(result.is_err());
     }
@@ -728,7 +734,7 @@ mod tests {
         let mut file = File::create(&current_dir_file_path).unwrap();
         file.write_all(b"Invalid LAS data").unwrap();
 
-        let result = create_polygon(current_dir_file_path.to_str().unwrap(), false);
+        let result = create_polygon(current_dir_file_path.to_str().unwrap(), false, true);
         assert!(result.is_err());
     }
 
@@ -770,7 +776,7 @@ mod tests {
                 writer.write_point(point).unwrap();
             }
         }
-        let result = create_polygon(file_path.to_str().unwrap(), true);
+        let result = create_polygon(file_path.to_str().unwrap(), true, true);
         println!("{:?}", result);
         assert!(result.is_ok());
         let feature = result.unwrap();
@@ -790,7 +796,7 @@ mod tests {
     fn test_crs_transformation() {
         let file_path = "tests/crs/BQ29_1000_4907.las";
 
-        let result = create_polygon(file_path, false);
+        let result = create_polygon(file_path, false, true);
         assert!(result.is_ok());
         let feature = result.unwrap();
         assert!(feature.geometry.is_some());
