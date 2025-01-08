@@ -20,17 +20,17 @@ use geo::{ConvexHull, Coord, LineString, Polygon};
 use las::Reader;
 use serde::Serialize;
 use serde_json::Map;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 use thiserror::Error;
 use threadpool::ThreadPool;
 use walkdir::WalkDir;
+mod las_feature_collection;
 
-use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
+use geojson::Feature;
+use geojson::{Geometry, Value};
+use las_feature_collection::LasOutlineFeatureCollection;
 
 /// Processes a folder containing LAS files and generates GeoJSON polygons.
 ///
@@ -123,102 +123,26 @@ pub fn process_folder(
 
     drop(feature_tx); // Close the channel to signal completion
 
-    let mut features = Vec::new();
+    let mut feature_collection = LasOutlineFeatureCollection::new();
 
     // Collect features from the channel
-    if group_by_folder {
-        let mut features_by_folder: HashMap<String, Vec<Geometry>> = HashMap::new();
-        for feature in feature_rx {
-            let folder_path = feature
-                .properties
-                .as_ref()
-                .unwrap()
-                .get("SourceFileDir")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string();
-            let geometry = feature.geometry.unwrap();
-
-            features_by_folder
-                .entry(folder_path)
-                .or_default()
-                .push(geometry);
-        }
-
-        // Merge geometries for each folder path
-        for (folder_path, geometries) in features_by_folder {
-            let merged_polygon = geometries.into_iter().fold(
-                Polygon::new(LineString::new(vec![]), vec![]),
-                |acc, geometry| {
-                    if let Value::Polygon(geom_coords) = geometry.value {
-                        let mut coords: Vec<Coord<f64>> = acc.exterior().clone().into_inner();
-                        let new_coords: Vec<Coord<f64>> = geom_coords[0]
-                            .iter()
-                            .map(|c| Coord { x: c[0], y: c[1] })
-                            .collect();
-                        coords.extend(new_coords);
-
-                        // Create a LineString from the combined coordinates
-                        let line_string = LineString::from(coords);
-
-                        // Compute the convex hull to get a single enclosing polygon
-                        line_string.convex_hull()
-                    } else {
-                        acc
-                    }
-                },
-            );
-
-            let exterior_coords: Vec<Vec<f64>> = merged_polygon
-                .exterior()
-                .coords()
-                .map(|c| vec![c.x, c.y])
-                .collect();
-            let geojson_polygon = Value::Polygon(vec![exterior_coords]);
-            let geometry = Geometry::new(geojson_polygon);
-            let mut properties = Map::new();
-            properties.insert("SourceFileDir".to_string(), folder_path.into());
-
-            let feature = Feature {
-                geometry: Some(geometry),
-                properties: Some(properties),
-                id: None,
-                bbox: None,
-                foreign_members: None,
-            };
-
-            features.push(feature);
-        }
-    } else {
-        for feature in feature_rx {
-            features.push(feature);
-        }
+    for feature in feature_rx {
+        feature_collection.add_feature(feature);
     }
 
-    // Create a FeatureCollection from all the merged features
-    let feature_collection = FeatureCollection {
-        features,
-        bbox: None,
-        foreign_members: None,
-    };
+    // Merge geometries if group_by_folder is true
+    if group_by_folder {
+        feature_collection.merge_geometries();
+    }
 
-    let geojson = GeoJson::FeatureCollection(feature_collection);
-
-    // Determine the output file name
-    let path = Path::new(folder_path);
+    let path = std::path::Path::new(folder_path);
     let file_stem = path
         .file_name()
         .unwrap_or_else(|| path.components().last().unwrap().as_os_str());
     let binding = format!("{}.geojson", file_stem.to_string_lossy());
     let output_file_name = output_file.unwrap_or(&binding);
 
-    // Save the GeoJSON to a file
-    println!("{:?}", output_file_name);
-    let mut file = File::create(output_file_name)?;
-    file.write_all(geojson.to_string().as_bytes())?;
-
-    println!("Merged polygons saved to {}", output_file_name);
+    feature_collection.save_to_file(output_file_name)?;
 
     Ok(())
 }
@@ -407,7 +331,9 @@ pub fn create_polygon(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use geojson::GeoJson;
+    use std::fs::{self, File};
+    use std::io::Write;
     use std::path::Path;
     use tempfile::tempdir;
 
