@@ -36,7 +36,7 @@ struct Args {
     use_detailed_outline: bool,
 
     /// Group by folder - create one polygon outline per folder.
-    #[arg(short, long)]
+    #[arg(long)]
     group_by_folder: bool,
 
     /// Recurse into subfolders

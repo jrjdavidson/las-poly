@@ -9,24 +9,32 @@
 //! use las_poly::process_folder;
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     process_folder("path/to/folder", true, true, true,true, None)?;
+//!     use std::fs;
+//!     let test_folder = "path/to/folder";
+//!     fs::create_dir_all(test_folder)?;
+//!     process_folder(test_folder, true, true, true,true, None)?;
+//!     // Clean up
+//!     fs::remove_dir_all(test_folder)?;
 //!     Ok(())
 //! }
 //! ```
 
 mod crs_utils;
+mod las_feature_collection;
+
 use crs_utils::{extract_crs, extract_crs_from_geotiff, Crs, CrsError};
 use geo::{ConvexHull, Coord, LineString, Polygon};
 use las::Reader;
 use serde::Serialize;
 use serde_json::Map;
+
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
+
 use thiserror::Error;
 use threadpool::ThreadPool;
 use walkdir::WalkDir;
-mod las_feature_collection;
 
 use geojson::Feature;
 use geojson::{Geometry, Value};
@@ -53,12 +61,17 @@ use las_feature_collection::LasOutlineFeatureCollection;
 /// use las_poly::process_folder;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     process_folder("path/to/folder", true, true, true,true, Some("output.geojson"))?;
+///     use std::fs;
+///     let test_folder = "path/to/folder";
+///     fs::create_dir_all(test_folder)?;
+///     process_folder(test_folder, true, true, false,true, Some("output.geojson"))?;
+///     // Clean up
+///     fs::remove_dir_all(test_folder)?;
 ///     Ok(())
 /// }
 /// ```
 #[derive(Error, Debug)]
-pub enum PolygonError {
+pub enum LasPolyError {
     #[error("Failed to read LAS file: {0}")]
     LasError(#[from] las::Error),
     #[error("Failed to transform coordinates: {0}")]
@@ -67,6 +80,8 @@ pub enum PolygonError {
     CrsError(#[from] CrsError),
     #[error("Failed to create output file: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Unable to find path{0}")]
+    PathError(String),
     #[error("Failed to create Proj instance: {0}")]
     ProjCreateError(#[from] proj::ProjCreateError),
 }
@@ -77,7 +92,13 @@ pub fn process_folder(
     recurse: bool,
     guess_crs: bool,
     output_file: Option<&str>,
-) -> Result<(), PolygonError> {
+) -> Result<(), LasPolyError> {
+    let path = Path::new(folder_path);
+
+    // Check if the folder exists
+    if !path.exists() {
+        return Err(LasPolyError::PathError(folder_path.to_string()));
+    }
     let num_threads = num_cpus::get();
     println!("Number of threads used: {:?}", num_threads);
 
@@ -217,7 +238,7 @@ pub fn create_polygon(
     file_path: &str,
     use_detailed_outline: bool,
     guess_crs: bool,
-) -> Result<Feature, PolygonError> {
+) -> Result<Feature, LasPolyError> {
     // Open the LAS file
     let crs = match extract_crs(file_path, guess_crs)? {
         // Check the CRS of the LAS file
@@ -235,7 +256,7 @@ pub fn create_polygon(
         }
     };
     if crs.is_none() {
-        return Err(PolygonError::CrsError(CrsError::MissingCrs));
+        return Err(LasPolyError::CrsError(CrsError::MissingCrs));
     };
     // Create a Proj instance for transforming coordinates to EPSG:4326
     let to_epsg4326 = Proj::new_known_crs(
@@ -243,7 +264,7 @@ pub fn create_polygon(
         "EPSG:4326",
         None,
     )
-    .map_err(PolygonError::from)?;
+    .map_err(LasPolyError::from)?;
 
     let mut reader = Reader::from_path(file_path)?;
 
