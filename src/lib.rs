@@ -10,11 +10,18 @@
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     use std::fs;
-//!     let test_folder = "path/to/folder";
-//!     fs::create_dir_all(test_folder)?;
-//!     process_folder(test_folder, true, true, true,true, None)?;
-//!     // Clean up
-//!     fs::remove_dir_all(test_folder)?;
+//!     use tempfile::tempdir;
+//!
+//!     let temp_dir = tempdir()?;
+//!     let test_folder = temp_dir.path().join("test_folder");
+//!     fs::create_dir_all(&test_folder)?;
+//!     process_folder(test_folder.to_str().unwrap(), true, true, true,true, None)?;
+//!     // Cleanup: Remove the file created in the root if it exists
+//!     let output_file = "test_folder.geojson";
+//!     if fs::metadata(output_file).is_ok() {
+//!         fs::remove_file(output_file)?;
+//!     }
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -62,11 +69,14 @@ use las_feature_collection::LasOutlineFeatureCollection;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     use std::fs;
-///     let test_folder = "path/to/folder";
-///     fs::create_dir_all(test_folder)?;
-///     process_folder(test_folder, true, true, false,true, Some("output.geojson"))?;
-///     // Clean up
-///     fs::remove_dir_all(test_folder)?;
+///     use tempfile::tempdir;
+///
+///     let temp_dir = tempdir()?;
+///     let test_folder = temp_dir.path().join("test_folder");
+///
+///     fs::create_dir_all(&test_folder)?;
+///    let output_path = temp_dir.path().join("output.geojson").to_str().unwrap().to_string();
+///     process_folder(test_folder.to_str().unwrap(), true, true, false,true, Some(&output_path))?;
 ///     Ok(())
 /// }
 /// ```
@@ -352,6 +362,7 @@ pub fn create_polygon(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_abs_diff_eq;
     use geojson::GeoJson;
     use std::fs::{self, File};
     use std::io::Write;
@@ -407,11 +418,22 @@ mod tests {
         if let geojson::Value::Polygon(polygon) = &geometry.value {
             assert_eq!(polygon.len(), 1); // Ensure there's one polygon
             assert_eq!(polygon[0].len(), 42); // Ensure the polygon has 30 points (including the closing point)
-            assert_eq!(polygon[0][0], [174.92264798671903, -36.874263591726894]); // Check the first point
-            assert_eq!(polygon[0][1], [174.9226633846416, -36.87488308028734]); // Check the second point
-            assert_eq!(polygon[0][2], [174.92266550472735, -36.874967634735846]); // Check the third point
-            assert_eq!(polygon[0][3], [174.92267523622655, -36.875355747295856]); // Check the fourth point
-            assert_eq!(polygon[0][29], [174.92646576488872, -36.87489574250899]);
+
+            assert_abs_diff_eq!(polygon[0][0][0], 174.92264798671903, epsilon = 1e-10); // Check the first point's x-coordinate
+            assert_abs_diff_eq!(polygon[0][0][1], -36.874263591726894, epsilon = 1e-10); // Check the first point's y-coordinate
+
+            assert_abs_diff_eq!(polygon[0][1][0], 174.9226633846416, epsilon = 1e-10); // Check the second point's x-coordinate
+            assert_abs_diff_eq!(polygon[0][1][1], -36.87488308028734, epsilon = 1e-10); // Check the second point's y-coordinate
+
+            assert_abs_diff_eq!(polygon[0][2][0], 174.92266550472735, epsilon = 1e-10); // Check the third point's x-coordinate
+            assert_abs_diff_eq!(polygon[0][2][1], -36.874967634735846, epsilon = 1e-10); // Check the third point's y-coordinate
+
+            assert_abs_diff_eq!(polygon[0][3][0], 174.92267523622655, epsilon = 1e-10); // Check the fourth point's x-coordinate
+            assert_abs_diff_eq!(polygon[0][3][1], -36.875355747295856, epsilon = 1e-10); // Check the fourth point's y-coordinate
+
+            assert_abs_diff_eq!(polygon[0][29][0], 174.92646576488872, epsilon = 1e-10); // Check the 30th point's x-coordinate
+            assert_abs_diff_eq!(polygon[0][29][1], -36.87489574250899, epsilon = 1e-10);
+        // Check the 30th point's y-coordinate
         // Check the closing point
         } else {
             panic!("Expected a Polygon geometry");
@@ -550,16 +572,12 @@ mod tests {
                 // Check the number of coordinates in the exterior ring
                 let exterior_ring = &coords[0];
                 assert_eq!(exterior_ring.len(), 37);
-
+                // Check specific coordinates (e.g., the first and last) with approximate comparison
+                assert_abs_diff_eq!(exterior_ring[0][0], 174.91942109783082, epsilon = 1e-10);
+                assert_abs_diff_eq!(exterior_ring[0][1], -36.87566929909413, epsilon = 1e-10);
+                assert_abs_diff_eq!(exterior_ring[24][0], 174.9264345357605, epsilon = 1e-10);
+                assert_abs_diff_eq!(exterior_ring[24][1], -36.87488206215996, epsilon = 1e-10);
                 // Check specific coordinates (e.g., the first and last)
-                assert_eq!(
-                    exterior_ring[0],
-                    vec![174.91942109783082, -36.87566929909413]
-                );
-                assert_eq!(
-                    exterior_ring[24],
-                    vec![174.9264345357605, -36.87488206215996]
-                );
             } else {
                 panic!("Expected Polygon geometry");
             }
@@ -756,5 +774,20 @@ mod tests {
         } else {
             panic!("Expected a Polygon geometry");
         }
+    }
+    #[test]
+    fn test_proj_availability() {
+        let proj = Proj::new_known_crs("EPSG:4326", "EPSG:3857", None);
+        assert!(proj.is_ok(), "Failed to initialize the Proj instance- proj might not be porperly installed on system.");
+    }
+
+    #[test]
+    fn test_proj_transformation() {
+        let proj = Proj::new_known_crs("EPSG:4326", "EPSG:3857", None).unwrap();
+        let result = proj.convert((0.0, 0.0));
+        assert!(result.is_ok(), "Failed to initialize the Proj instance");
+        let (x, y) = result.unwrap();
+        assert_eq!(x, 0.0);
+        assert_eq!(y, 0.0);
     }
 }

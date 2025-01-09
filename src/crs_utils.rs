@@ -185,14 +185,20 @@ pub fn extract_crs_from_geotiff(
 mod tests {
     use super::*;
     use las::{Header, Point, Writer};
-    use std::fs;
+    use tempfile::tempdir;
+
+    fn setup() -> tempfile::TempDir {
+        tempdir().expect("Failed to create temporary directory")
+    }
 
     #[test]
     fn test_extract_crs_guess_epsg4326() {
         // Create a mock LAS file with points in EPSG:4326 bounds
-        let file_path = "tests/data/mock_epsg4326.las";
+        let temp_dir = setup();
+
+        let file_path = temp_dir.path().join("mock_epsg4326.las");
         let header = Header::default();
-        let mut writer = Writer::from_path(file_path, header).unwrap();
+        let mut writer = Writer::from_path(&file_path, header).unwrap();
         let points = vec![
             Point {
                 x: 10.0,
@@ -211,20 +217,19 @@ mod tests {
             writer.write_point(point).unwrap();
         }
         writer.close().unwrap();
-        let crs = extract_crs(file_path, true).unwrap();
+        let crs = extract_crs(file_path.to_str().unwrap(), true).unwrap();
         assert!(matches!(crs, Some(Crs::Wkt(_))));
         assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:4326".to_string()));
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
     }
 
     #[test]
     fn test_extract_crs_none() {
         // Create a mock LAS file with no CRS information
-        let file_path = "tests/data/mock_none.las";
+        let temp_dir = setup();
+
+        let file_path = temp_dir.path().join("mock_none.las");
         let header = Header::default();
-        let mut writer = Writer::from_path(file_path, header).unwrap();
+        let mut writer = Writer::from_path(&file_path, header).unwrap();
         writer
             .write_point(Point {
                 x: 1000.0,
@@ -234,11 +239,8 @@ mod tests {
             })
             .unwrap(); // Write an empty point record
         writer.close().unwrap();
-        let crs = extract_crs(file_path, true).unwrap();
+        let crs = extract_crs(file_path.to_str().unwrap(), true).unwrap();
         assert!(crs.is_none());
-
-        // Clean up
-        fs::remove_file(file_path).unwrap();
     }
 
     #[test]
