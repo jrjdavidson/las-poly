@@ -130,9 +130,14 @@ mod tests {
     #[test]
     fn test_save_to_file() {
         let mut collection = LasOutlineFeatureCollection::new();
+        let mut properties = Map::new();
+        properties.insert("SourceFileDir".to_string(), json!("folder1"));
+        properties.insert("Attribute1".to_string(), json!("Value1"));
+        properties.insert("Attribute2".to_string(), json!(42));
+
         let feature = Feature {
             geometry: Some(Geometry::new(Value::Point(vec![1.0, 2.0]))),
-            properties: Some(Map::new()),
+            properties: Some(properties.clone()),
             id: None,
             bbox: None,
             foreign_members: None,
@@ -146,6 +151,14 @@ mod tests {
         let geojson: GeoJson = saved_content.parse().unwrap();
         if let GeoJson::FeatureCollection(fc) = geojson {
             assert_eq!(fc.features.len(), 1);
+            let saved_feature = &fc.features[0];
+            if let Some(saved_properties) = &saved_feature.properties {
+                assert_eq!(saved_properties.get("SourceFileDir").unwrap(), "folder1");
+                assert_eq!(saved_properties.get("Attribute1").unwrap(), "Value1");
+                assert_eq!(saved_properties.get("Attribute2").unwrap(), 42);
+            } else {
+                panic!("Expected properties");
+            }
         } else {
             panic!("Expected a FeatureCollection");
         }
@@ -158,7 +171,8 @@ mod tests {
         let mut collection = LasOutlineFeatureCollection::new();
         let mut properties = Map::new();
         properties.insert("SourceFileDir".to_string(), json!("folder1"));
-
+        properties.insert("Attribute1".to_string(), json!("Value1"));
+        properties.insert("number_of_points".to_string(), json!(42));
         let feature1 = Feature {
             geometry: Some(Geometry::new(Value::Polygon(vec![vec![
                 vec![0.0, 0.0],
@@ -201,6 +215,14 @@ mod tests {
             }
         } else {
             panic!("Expected a geometry");
+        }
+        if let Some(properties) = &merged_feature.properties {
+            let source_file_dir = properties.get("SourceFileDir").unwrap().as_str().unwrap();
+            assert_eq!(source_file_dir, "folder1");
+            assert!(properties.get("Attribute1").is_none());
+            assert!(properties.get("number_of_points").is_none());
+        } else {
+            panic!("Expected properties");
         }
     }
 }
