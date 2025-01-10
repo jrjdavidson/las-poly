@@ -84,7 +84,6 @@ pub fn extract_crs(file_path: &str, guess_crs: bool) -> Result<Option<Crs>, CrsE
             return Ok(Some(guessed_crs));
         }
     }
-
     Ok(None)
 }
 
@@ -221,7 +220,35 @@ mod tests {
         assert!(matches!(crs, Some(Crs::Wkt(_))));
         assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:4326".to_string()));
     }
+    #[test]
+    fn test_fail_crs_guess() {
+        // Create a mock LAS file with points in EPSG:4326 bounds
+        let temp_dir = setup();
 
+        let file_path = temp_dir.path().join("mock_epsg4326.las");
+        let header = Header::default();
+        let mut writer = Writer::from_path(&file_path, header).unwrap();
+        let points = vec![
+            Point {
+                x: 10.0,
+                y: 200.0,
+                z: 30.0,
+                ..Default::default()
+            },
+            Point {
+                x: -10.0,
+                y: -20.0,
+                z: -30.0,
+                ..Default::default()
+            },
+        ];
+        for point in points {
+            writer.write_point(point).unwrap();
+        }
+        writer.close().unwrap();
+        let crs = extract_crs(file_path.to_str().unwrap(), true).unwrap();
+        assert!(crs.is_none());
+    }
     #[test]
     fn test_extract_crs_none() {
         // Create a mock LAS file with no CRS information

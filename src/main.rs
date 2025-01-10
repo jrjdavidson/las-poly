@@ -43,7 +43,7 @@ struct Args {
     #[arg(short, long)]
     recurse: bool,
 
-    /// Guess the CRS of the las file is the WKT or Geotiff header informatiion is not present.
+    /// Guess the CRS of the las file is the WKT or Geotiff header information is not present.
     #[arg(short, long)]
     guess_crs: bool,
 }

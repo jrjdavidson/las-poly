@@ -447,7 +447,30 @@ mod tests {
         );
         assert_eq!(properties.get("SourceFileDir").unwrap(), "tests/data");
     }
+    #[test]
+    fn test_geotiff_crs() {
+        let file_path = "tests/crs/merged.las";
+        let result = create_polygon(file_path, true, true);
+        assert!(result.is_ok(), "Failed to create polygon from LAS file");
+        let feature = result.unwrap();
+        assert!(feature.geometry.is_some(), "Feature geometry is missing");
 
+        // Additional assertions
+        let geometry = feature.geometry.unwrap();
+        if let geojson::Value::Polygon(polygon) = &geometry.value {
+            assert_eq!(polygon.len(), 1, "Expected one polygon"); // Ensure there's one polygon
+        } else {
+            panic!("Expected a Polygon geometry");
+        }
+
+        // Check properties
+        let properties = feature.properties.unwrap();
+        assert_eq!(
+            properties.get("SourceFile").unwrap(),
+            "tests/crs/merged.las"
+        );
+        assert_eq!(properties.get("SourceFileDir").unwrap(), "tests/crs");
+    }
     #[test]
     fn test_process_folder_no_group_by_folder() {
         let tempdir = setup();
