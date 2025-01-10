@@ -9,6 +9,8 @@ pub struct LasOutlineFeatureCollection {
     features: Vec<Feature>,
 }
 
+type FolderFeatures = (Vec<Geometry>, u64, HashMap<String, Vec<String>>);
+
 impl LasOutlineFeatureCollection {
     pub fn new() -> Self {
         Self {
@@ -33,9 +35,9 @@ impl LasOutlineFeatureCollection {
         println!("Merged polygons saved to {}", output_file_name);
         Ok(())
     }
-
     pub fn merge_geometries(&mut self) {
-        let mut features_by_folder: HashMap<String, Vec<Geometry>> = HashMap::new();
+        let mut features_by_folder: HashMap<String, FolderFeatures> = HashMap::new();
+
         for feature in self.features.drain(..) {
             let folder_path = feature
                 .properties
@@ -47,14 +49,48 @@ impl LasOutlineFeatureCollection {
                 .unwrap()
                 .to_string();
             let geometry = feature.geometry.unwrap();
+            let number_of_points: u64 = feature
+                .properties
+                .as_ref()
+                .unwrap()
+                .get("number_of_points")
+                .unwrap()
+                .as_u64()
+                .unwrap();
+            let mut other_properties = HashMap::new();
+            for (key, value) in feature.properties.as_ref().unwrap().iter() {
+                if key != "SourceFileDir" && key != "number_of_points" {
+                    if let Some(value_str) = value.as_str() {
+                        other_properties
+                            .entry(key.clone())
+                            .or_insert_with(Vec::new)
+                            .push(value_str.to_string());
+                    }
+                }
+            }
 
             features_by_folder
-                .entry(folder_path)
+                .entry(folder_path.clone())
                 .or_default()
+                .0
                 .push(geometry);
+            features_by_folder.entry(folder_path.clone()).or_default().1 += number_of_points;
+            for (key, values) in other_properties {
+                let entry = features_by_folder
+                    .entry(folder_path.clone())
+                    .or_insert_with(|| (Vec::new(), 0, HashMap::new()))
+                    .2
+                    .entry(key)
+                    .or_default();
+                for value in values {
+                    if !entry.contains(&value) {
+                        entry.push(value);
+                    }
+                }
+            }
         }
 
-        for (folder_path, geometries) in features_by_folder {
+        for (folder_path, (geometries, total_points, other_properties)) in features_by_folder {
             let merged_polygon = geometries.into_iter().fold(
                 Polygon::new(LineString::new(vec![]), vec![]),
                 |acc, geometry| {
@@ -86,7 +122,15 @@ impl LasOutlineFeatureCollection {
             let geometry = Geometry::new(geojson_polygon);
             let mut properties = Map::new();
             properties.insert("SourceFileDir".to_string(), folder_path.into());
-
+            properties.insert("number_of_points".to_string(), total_points.into());
+            for (key, values) in other_properties {
+                properties.insert(
+                    key,
+                    serde_json::Value::Array(
+                        values.into_iter().map(serde_json::Value::String).collect(),
+                    ),
+                );
+            }
             let feature = Feature {
                 geometry: Some(geometry),
                 properties: Some(properties),
@@ -200,16 +244,34 @@ mod tests {
             bbox: None,
             foreign_members: None,
         };
+        let mut properties3 = properties.clone();
+        properties3.insert("Attribute1".to_string(), json!("Value2"));
+        properties3.insert("Attribute2".to_string(), json!("Value3"));
+        properties3.insert("Attribute3".to_string(), json!("!@#$%^&*()"));
+        let feature3 = Feature {
+            geometry: Some(Geometry::new(Value::Polygon(vec![vec![
+                vec![1.0, 1.0],
+                vec![2.0, 1.0],
+                vec![2.0, 2.0],
+                vec![1.0, 2.0],
+                vec![1.0, 1.0],
+            ]]))),
+            properties: Some(properties3.clone()),
+            id: None,
+            bbox: None,
+            foreign_members: None,
+        };
 
         collection.add_feature(feature1);
         collection.add_feature(feature2);
+        collection.add_feature(feature3);
         collection.merge_geometries();
 
         assert_eq!(collection.features.len(), 1);
         let merged_feature = &collection.features[0];
         if let Some(geometry) = &merged_feature.geometry {
             if let Value::Polygon(coords) = &geometry.value {
-                assert_eq!(coords[0].len(), 7); // Convex hull should have 8 points
+                assert_eq!(coords[0].len(), 7); // Convex hull should have 7 points
             } else {
                 panic!("Expected a Polygon");
             }
@@ -219,8 +281,22 @@ mod tests {
         if let Some(properties) = &merged_feature.properties {
             let source_file_dir = properties.get("SourceFileDir").unwrap().as_str().unwrap();
             assert_eq!(source_file_dir, "folder1");
-            assert!(properties.get("Attribute1").is_none());
-            assert!(properties.get("number_of_points").is_none());
+
+            let number_of_points = properties
+                .get("number_of_points")
+                .unwrap()
+                .as_u64()
+                .unwrap();
+            assert_eq!(number_of_points, 126);
+
+            let attribute1 = properties.get("Attribute1").unwrap().as_array().unwrap();
+            assert_eq!(attribute1, &vec![json!("Value1"), json!("Value2")]);
+
+            let attribute2 = properties.get("Attribute2").unwrap().as_array().unwrap();
+            assert_eq!(attribute2, &vec![json!("Value3")]);
+
+            let attribute3 = properties.get("Attribute3").unwrap().as_array().unwrap();
+            assert_eq!(attribute3, &vec![json!("!@#$%^&*()")]);
         } else {
             panic!("Expected properties");
         }

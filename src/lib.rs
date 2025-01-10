@@ -250,7 +250,7 @@ pub fn create_polygon(
     guess_crs: bool,
 ) -> Result<Feature, LasPolyError> {
     // Open the LAS file
-    let crs = match extract_crs(file_path, guess_crs)? {
+    let mut crs = match extract_crs(file_path, guess_crs)? {
         // Check the CRS of the LAS file
         Some(Crs::Wkt(wkt)) => Some(wkt),
         Some(Crs::GeoTiff(geo_key_directory, geo_double_params, geo_ascii_params)) => {
@@ -268,14 +268,10 @@ pub fn create_polygon(
     if crs.is_none() {
         return Err(LasPolyError::CrsError(CrsError::MissingCrs));
     };
+    crs = Some(crs.unwrap().trim_end_matches(char::from(0)).to_string());
     // Create a Proj instance for transforming coordinates to EPSG:4326
-    let to_epsg4326 = Proj::new_known_crs(
-        crs.unwrap().trim_end_matches(char::from(0)),
-        "EPSG:4326",
-        None,
-    )
-    .map_err(LasPolyError::from)?;
-
+    let to_epsg4326 =
+        Proj::new_known_crs(&crs.unwrap(), "EPSG:4326", None).map_err(LasPolyError::from)?;
     let mut reader = Reader::from_path(file_path)?;
 
     let geojson_polygon = if !use_detailed_outline {
@@ -781,6 +777,14 @@ mod tests {
     }
 
     #[test]
+    fn test_crs_error_transformation() {
+        let file_path = "tests/crs/210728_035051_Scanner_1.las";
+
+        let result = create_polygon(file_path, false, true);
+        println!("{:?}", result);
+        assert!(result.is_err());
+    }
+    #[test]
     fn test_crs_transformation() {
         let file_path = "tests/crs/BQ29_1000_4907.las";
 
@@ -812,5 +816,17 @@ mod tests {
         let (x, y) = result.unwrap();
         assert_eq!(x, 0.0);
         assert_eq!(y, 0.0);
+    }
+    #[test]
+    #[ignore = "for testing purposes"]
+    fn test_proj_with_valid_wkt() {
+        let wkt = "GEOCCS[\"WGS84 Geocentric\",DATUM[\"WGS84\",SPHEROID[\"WGS84\",6378137,298.257223563,AUTHORITY[\"EPSG\",\"7030\"]],AUTHORITY[\"EPSG\",\"6326\"]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",\"8901\"]],UNIT[\"Meter\",1,AUTHORITY[\"EPSG\",\"9001\"]],AXIS[\"X\",OTHER],AXIS[\"Y\",EAST],AXIS[\"Z\",NORTH],AUTHORITY[\"EPSG\",\"4978\"]]\0";
+        let trimmed_wkt = wkt.trim_end_matches(char::from(0));
+
+        let proj = Proj::new(trimmed_wkt);
+        assert!(
+            proj.is_ok(),
+            "Failed to create Proj instance with valid WKT"
+        );
     }
 }

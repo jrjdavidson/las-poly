@@ -1,5 +1,5 @@
 use las::{Point, Reader};
-use rand::Rng;
+use rand::seq::SliceRandom;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq)]
@@ -91,11 +91,11 @@ fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point
     let total_points = reader.header().number_of_points();
     let num_points = num_points.min(total_points as usize); // Use the minimum between total_points and num_points
     let mut rng = rand::thread_rng();
+    let mut indices: Vec<u64> = (0..total_points).collect();
+    indices.shuffle(&mut rng);
     let mut points = Vec::with_capacity(num_points);
-
-    for _ in 0..num_points {
-        let random_index = rng.gen_range(0..total_points);
-        reader.seek(random_index)?;
+    for &index in indices.iter().take(num_points) {
+        reader.seek(index)?;
         if let Some(point) = reader.read_point()? {
             points.push(point);
         }
@@ -221,6 +221,12 @@ mod tests {
         assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:4326".to_string()));
     }
     #[test]
+    fn test_extract_crs_guess_none() {
+        // Create a mock LAS file with points in EPSG:4326 bounds
+        let crs = extract_crs("tests/crs/BLOCK_129.las", true).unwrap();
+        assert!(crs.is_none());
+    }
+    #[test]
     fn test_fail_crs_guess() {
         // Create a mock LAS file with points in EPSG:4326 bounds
         let temp_dir = setup();
@@ -290,16 +296,16 @@ mod tests {
             panic!("Expected CRS information in VLRs");
         }
     }
+
     #[test]
-    #[ignore]
-    fn test_extract_crs() {
+    fn geocentric_wkt() {
         use proj::Proj;
 
         // Test for VLRs data in the specified LAS file
-        let file_path = "tests/crs/BLOCK_129.las";
+        let file_path = "tests/crs/210728_035051_Scanner_1.las";
         let crs = extract_crs(file_path, true).unwrap();
         assert!(crs.is_some());
-
+        println!("{:?}", crs);
         if let Some(Crs::Wkt(wkt)) = crs {
             assert!(!wkt.is_empty());
 
@@ -307,17 +313,26 @@ mod tests {
             let proj = Proj::new(wkt.trim_end_matches(char::from(0)));
             println!("{:?}", proj);
             assert!(proj.is_ok());
-        } else if let Some(Crs::GeoTiff(data1, data2, data3)) = crs {
-            println!("CRS found (GeoTIFF): {:?}", data1);
-            assert!(!data1.is_empty());
+        } else {
+            panic!("Expected CRS information in VLRs");
+        }
+    }
+    #[test]
+    fn empty_wkt() {
+        use proj::Proj;
 
-            // Check if proj accepts the GeoTIFF data
-            let crs_string =
-                extract_crs_from_geotiff(&data1, data2.as_deref(), data3.as_deref()).unwrap();
-            println!("{:?}", crs_string);
-            let proj = Proj::new_known_crs(&crs_string, "EPSG:4326", None);
+        // Test for VLRs data in the specified LAS file
+        let file_path = "tests/crs/5points_14.las";
+        let crs = extract_crs(file_path, true).unwrap();
+        assert!(crs.is_some());
+        println!("{:?}", crs);
+        if let Some(Crs::Wkt(wkt)) = crs {
+            assert!(wkt.is_empty());
+
+            // Check if proj accepts the WKT
+            let proj = Proj::new(wkt.trim_end_matches(char::from(0)));
             println!("{:?}", proj);
-            assert!(proj.is_ok());
+            assert!(proj.is_err());
         } else {
             panic!("Expected CRS information in VLRs");
         }
