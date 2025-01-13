@@ -10,7 +10,11 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout code
@@ -22,11 +26,32 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install dependencies
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libproj-dev
+
+      - name: Install dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        run: choco install proj
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install proj
 
       - name: Build
         run: cargo build --release
 
       - name: Run tests
         run: cargo test
+
+      - name: Run Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run Rustfmt
+        run: cargo fmt -- --check
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run cargo-audit
+        run: cargo audit
