@@ -27,7 +27,7 @@ jobs:
           override: true
 
       - name: Install dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-lastest'
+        if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libproj-dev
 
       - name: Install dependencies (Windows)
