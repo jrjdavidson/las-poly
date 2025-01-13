@@ -32,8 +32,11 @@ jobs:
 
       - name: Install dependencies (Windows)
         if: matrix.os == 'windows-latest'
-        run: choco install proj
-
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          .\vcpkg\bootstrap-vcpkg.bat
+          .\vcpkg\vcpkg.exe install proj:x64-windows
+          echo "::add-path::$(pwd)\vcpkg\installed\x64-windows\bin"
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-latest'
         run: brew install proj
