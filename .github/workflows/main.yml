@@ -77,7 +77,9 @@ jobs:
       - name: Print environment variables
         run: |
           echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+          echo "PKG_CONFIG_PATH=$env:PKG_CONFIG_PATH"
           echo "PATH=$PATH"
+
       - name: Build
         run: cargo build --release
 
