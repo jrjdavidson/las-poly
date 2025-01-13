@@ -24,11 +24,16 @@ fn test_create_polygon_simple_outline() {
     if let geojson::Value::Polygon(polygon) = geometry.value {
         assert_eq!(polygon.len(), 1); // Ensure there's one polygon
         assert_eq!(polygon[0].len(), 5); // Ensure the polygon has 5 points (including the closing point)
-        assert_eq!(polygon[0][0], [174.91941143911868, -36.87566977961954]);
-        assert_eq!(polygon[0][1], [174.92268177317487, -36.87561689771632]);
-        assert_eq!(polygon[0][2], [174.92264691906135, -36.874226826185556]);
-        assert_eq!(polygon[0][3], [174.91937664420047, -36.87427970543262]);
-        assert_eq!(polygon[0][4], [174.91941143911868, -36.87566977961954]);
+        assert_abs_diff_eq!(polygon[0][0][0], 174.91941143911868, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][0][1], -36.87566977961954, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][1][0], 174.92268177317487, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][1][1], -36.87561689771632, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][2][0], 174.92264691906135, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][2][1], -36.874226826185556, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][3][0], 174.91937664420047, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][3][1], -36.87427970543262, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][4][0], 174.91941143911868, epsilon = 1e-10);
+        assert_abs_diff_eq!(polygon[0][4][1], -36.87566977961954, epsilon = 1e-10);
     } else {
         panic!("Expected a Polygon geometry");
     }
