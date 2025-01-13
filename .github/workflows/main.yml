@@ -69,6 +69,7 @@ jobs:
           echo "PKG_CONFIG_PATH=$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\lib\pkgconfig" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=$env:PKG_CONFIG_PATH"
           echo "PATH=$env:PATH"
+          dir $env:PKG_CONFIG_PATH
 
       - name: Build
         run: cargo build --release
