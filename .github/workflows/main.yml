@@ -48,8 +48,6 @@ jobs:
   proj-windows:
     name: proj windows
     runs-on: 'windows-latest'
-    env:
-      PKG_CONFIG_PATH: C:\vcpkg\installed\x64-windows\lib\pkgconfig
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -61,7 +59,10 @@ jobs:
 
       - name: Install dependencies (Windows)
         run: |
-          choco install pkgconfiglite -y
+          echo pwd
+          echo $env:GITHUB_WORKSPACE
+          echo Get-Location
+          # choco install pkgconfiglite -y
           git clone https://github.com/microsoft/vcpkg.git
           .\vcpkg\bootstrap-vcpkg.bat
           .\vcpkg\vcpkg.exe install proj:x64-windows
