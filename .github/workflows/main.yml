@@ -61,10 +61,7 @@ jobs:
         run: |
           echo "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\bin" >> $env:GITHUB_PATH
           echo "PKG_CONFIG_PATH=$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\lib\pkgconfig" >> $env:GITHUB_ENV
-          echo "PKG_CONFIG_PATH=$env:GITHUB_ENV"
-          echo "PATH=$env:PATH"
-          dir $PKG_CONFIG_PATH
-          choco install pkgconfiglite -y
+          # choco install pkgconfiglite -y
           git clone https://github.com/microsoft/vcpkg.git
           .\vcpkg\bootstrap-vcpkg.bat
           .\vcpkg\vcpkg.exe install proj:x64-windows
