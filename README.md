@@ -1,3 +1,4 @@
+[![CI](https://github.com/jrjdavidson/las-poly/actions/workflows/main.yml/badge.svg)](https://github.com/jrjdavidson/las-poly/actions/workflows/main.yml)
 # las_poly
 
 A command-line tool for processing LAS files and generating GeoJSON polygons.
