@@ -39,6 +39,10 @@ struct Args {
     #[arg(long)]
     group_by_folder: bool,
 
+    /// Merge Tiled - only merges outlines if polygons shares a vertex.
+    #[arg(short, long)]
+    merge_tiled: bool,
+
     /// Recurse into subfolders
     #[arg(short, long)]
     recurse: bool,
@@ -54,6 +58,7 @@ fn main() {
         &args.folder_path,
         args.use_detailed_outline,
         args.group_by_folder,
+        args.merge_tiled,
         args.recurse,
         args.guess_crs,
         args.name.as_deref(),

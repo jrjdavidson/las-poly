@@ -15,7 +15,7 @@
 //!     let temp_dir = tempdir()?;
 //!     let test_folder = temp_dir.path().join("test_folder");
 //!     fs::create_dir_all(&test_folder)?;
-//!     process_folder(test_folder.to_str().unwrap(), true, true, true,true, None)?;
+//!     process_folder(test_folder.to_str().unwrap(),true, true, true, true,true, None)?;
 //!     // Cleanup: Remove the file created in the root if it exists
 //!     let output_file = "test_folder.geojson";
 //!     if fs::metadata(output_file).is_ok() {
@@ -76,7 +76,7 @@ use las_feature_collection::LasOutlineFeatureCollection;
 ///
 ///     fs::create_dir_all(&test_folder)?;
 ///    let output_path = temp_dir.path().join("output.geojson").to_str().unwrap().to_string();
-///     process_folder(test_folder.to_str().unwrap(), true, true, false,true, Some(&output_path))?;
+///     process_folder(test_folder.to_str().unwrap(),true, true, true, false,true, Some(&output_path))?;
 ///     Ok(())
 /// }
 /// ```
@@ -99,6 +99,7 @@ pub fn process_folder(
     folder_path: &str,
     use_detailed_outline: bool,
     group_by_folder: bool,
+    merge_if_shared_vertex: bool,
     recurse: bool,
     guess_crs: bool,
     output_file: Option<&str>,
@@ -162,8 +163,8 @@ pub fn process_folder(
     }
 
     // Merge geometries if group_by_folder is true
-    if group_by_folder {
-        feature_collection.merge_geometries();
+    if group_by_folder || merge_if_shared_vertex {
+        feature_collection.merge_geometries(merge_if_shared_vertex);
     }
 
     let path = std::path::Path::new(folder_path);
