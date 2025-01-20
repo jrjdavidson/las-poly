@@ -39,6 +39,31 @@ impl LasOutlineFeatureCollection {
     pub fn merge_geometries(&mut self, only_join_if_shared_vertex: bool) {
         let mut features_by_folder: HashMap<String, FolderFeatures> = HashMap::new();
 
+        self.group_features_by_folder(&mut features_by_folder);
+
+        for (folder_path, (geometries, total_points, other_properties)) in features_by_folder {
+            if only_join_if_shared_vertex {
+                let groups = self.group_by_shared_vertex(geometries);
+                for geometries in groups {
+                    let merged_polygon = self.merge_group(geometries);
+                    self.create_feature(
+                        folder_path.clone(),
+                        total_points,
+                        other_properties.clone(),
+                        merged_polygon,
+                    );
+                }
+            } else {
+                let merged_polygon = self.merge_group(geometries);
+                self.create_feature(folder_path, total_points, other_properties, merged_polygon);
+            };
+        }
+    }
+
+    fn group_features_by_folder(
+        &mut self,
+        features_by_folder: &mut HashMap<String, FolderFeatures>,
+    ) {
         for feature in self.features.drain(..) {
             let folder_path = feature
                 .properties
@@ -90,104 +115,110 @@ impl LasOutlineFeatureCollection {
                 }
             }
         }
+    }
 
-        for (folder_path, (mut geometries, total_points, other_properties)) in features_by_folder {
-            let mut groups: Vec<Vec<Geometry>>;
-            if only_join_if_shared_vertex {
-                groups = vec![];
+    fn group_by_shared_vertex(&self, mut geometries: Vec<Geometry>) -> Vec<Vec<Geometry>> {
+        let mut groups: Vec<Vec<Geometry>> = vec![];
 
-                while let Some(geometry) = geometries.pop() {
-                    let mut group = vec![geometry];
-                    let mut i = 0;
-                    while i < geometries.len() {
-                        let geom_coords = if let Value::Polygon(coords) = &geometries[i].value {
-                            coords[0]
-                                .iter()
-                                .map(|c| Coord { x: c[0], y: c[1] })
-                                .collect::<Vec<_>>()
-                        } else {
-                            vec![]
-                        };
-
-                        let shared_vertex = group.iter().any(|g| {
-                            if let Value::Polygon(group_coords) = &g.value {
-                                let group_coords: Vec<Coord<f64>> = group_coords[0]
-                                    .iter()
-                                    .map(|c| Coord { x: c[0], y: c[1] })
-                                    .collect();
-                                group_coords.iter().any(|c| geom_coords.contains(c))
-                            } else {
-                                false
-                            }
-                        });
-
-                        if shared_vertex {
-                            group.push(geometries.remove(i));
-                        } else {
-                            i += 1;
-                        }
-                    }
-                    groups.push(group);
-                }
-            } else {
-                groups = vec![geometries];
-            }
-            for geometries in groups {
-                let merged_polygon = geometries.into_iter().fold(
-                    Polygon::new(LineString::new(vec![]), vec![]),
-                    |acc, geometry| {
-                        if let Value::Polygon(geom_coords) = geometry.value {
-                            let mut coords: Vec<Coord<f64>> = acc.exterior().clone().into_inner();
-                            let new_coords: Vec<Coord<f64>> = geom_coords[0]
-                                .iter()
-                                .map(|c| Coord { x: c[0], y: c[1] })
-                                .collect();
-
-                            coords.extend(new_coords);
-
-                            // Create a LineString from the combined coordinates
-                            let line_string = LineString::from(coords);
-
-                            // Compute the convex hull to get a single enclosing polygon
-                            line_string.convex_hull()
-                        } else {
-                            acc
-                        }
-                    },
-                );
-
-                let exterior_coords: Vec<Vec<f64>> = merged_polygon
-                    .exterior()
-                    .coords()
-                    .map(|c| vec![c.x, c.y])
-                    .collect();
-                let geojson_polygon = Value::Polygon(vec![exterior_coords]);
-                let geometry = Geometry::new(geojson_polygon);
-                let mut properties = Map::new();
-                properties.insert("SourceFileDir".to_string(), folder_path.clone().into());
-                properties.insert("number_of_points".to_string(), total_points.into());
-                for (key, values) in &other_properties {
-                    properties.insert(
-                        key.to_string(),
-                        serde_json::Value::Array(
-                            values
-                                .iter()
-                                .map(|v| serde_json::Value::String(v.clone()))
-                                .collect(),
-                        ),
-                    );
-                }
-                let feature = Feature {
-                    geometry: Some(geometry),
-                    properties: Some(properties),
-                    id: None,
-                    bbox: None,
-                    foreign_members: None,
+        while let Some(geometry) = geometries.pop() {
+            let mut group = vec![geometry];
+            let mut i = 0;
+            while i < geometries.len() {
+                let geom_coords = if let Value::Polygon(coords) = &geometries[i].value {
+                    coords[0]
+                        .iter()
+                        .map(|c| Coord { x: c[0], y: c[1] })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![]
                 };
 
-                self.add_feature(feature);
+                let shared_vertex = group.iter().any(|g| {
+                    if let Value::Polygon(group_coords) = &g.value {
+                        let group_coords: Vec<Coord<f64>> = group_coords[0]
+                            .iter()
+                            .map(|c| Coord { x: c[0], y: c[1] })
+                            .collect();
+                        group_coords.iter().any(|c| geom_coords.contains(c))
+                    } else {
+                        false
+                    }
+                });
+
+                if shared_vertex {
+                    group.push(geometries.remove(i));
+                } else {
+                    i += 1;
+                }
             }
+            groups.push(group);
         }
+
+        groups
+    }
+
+    fn merge_group(&self, geometries: Vec<Geometry>) -> Polygon<f64> {
+        geometries.into_iter().fold(
+            Polygon::new(LineString::new(vec![]), vec![]),
+            |acc, geometry| {
+                if let Value::Polygon(geom_coords) = geometry.value {
+                    let mut coords: Vec<Coord<f64>> = acc.exterior().clone().into_inner();
+                    let new_coords: Vec<Coord<f64>> = geom_coords[0]
+                        .iter()
+                        .map(|c| Coord { x: c[0], y: c[1] })
+                        .collect();
+
+                    coords.extend(new_coords);
+
+                    // Create a LineString from the combined coordinates
+                    let line_string = LineString::from(coords);
+
+                    // Compute the convex hull to get a single enclosing polygon
+                    line_string.convex_hull()
+                } else {
+                    acc
+                }
+            },
+        )
+    }
+
+    fn create_feature(
+        &mut self,
+        folder_path: String,
+        total_points: u64,
+        other_properties: HashMap<String, Vec<String>>,
+        merged_polygon: Polygon<f64>,
+    ) {
+        let exterior_coords: Vec<Vec<f64>> = merged_polygon
+            .exterior()
+            .coords()
+            .map(|c| vec![c.x, c.y])
+            .collect();
+        let geojson_polygon = Value::Polygon(vec![exterior_coords]);
+        let geometry = Geometry::new(geojson_polygon);
+        let mut properties = Map::new();
+        properties.insert("SourceFileDir".to_string(), folder_path.into());
+        properties.insert("number_of_points".to_string(), total_points.into());
+        for (key, values) in &other_properties {
+            properties.insert(
+                key.to_string(),
+                serde_json::Value::Array(
+                    values
+                        .iter()
+                        .map(|v| serde_json::Value::String(v.clone()))
+                        .collect(),
+                ),
+            );
+        }
+        let feature = Feature {
+            geometry: Some(geometry),
+            properties: Some(properties),
+            id: None,
+            bbox: None,
+            foreign_members: None,
+        };
+
+        self.add_feature(feature);
     }
 }
 
