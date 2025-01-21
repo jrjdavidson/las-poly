@@ -1,20 +1,40 @@
-use geo::{ConvexHull, Coord, LineString, Polygon};
+use geo::{ConvexHull, Coord, Intersects, LineString, Polygon};
 use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
-use ordered_float::OrderedFloat;
 use serde_json::Map;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+};
 use union_find::{QuickUnionUf, UnionByRank, UnionFind};
+
+const EPSILON: f64 = 1e-7;
 
 pub struct LasOutlineFeatureCollection {
     features: Vec<Feature>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct OrderedCoord {
-    x: OrderedFloat<f64>,
-    y: OrderedFloat<f64>,
+    x: f64,
+    y: f64,
+}
+
+impl PartialEq for OrderedCoord {
+    fn eq(&self, other: &Self) -> bool {
+        (self.x - other.x).abs() < EPSILON && (self.y - other.y).abs() < EPSILON
+    }
+}
+
+impl Eq for OrderedCoord {}
+
+impl Hash for OrderedCoord {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let x_hash = (self.x / EPSILON).round() as i64;
+        let y_hash = (self.y / EPSILON).round() as i64;
+        x_hash.hash(state);
+        y_hash.hash(state);
+    }
 }
 
 type FolderFeatures = (Vec<Geometry>, u64, HashMap<String, Vec<String>>);
@@ -46,26 +66,42 @@ impl LasOutlineFeatureCollection {
         Ok(())
     }
 
-    pub fn merge_geometries(&mut self, only_join_if_shared_vertex: bool) {
+    pub fn merge_geometries(&mut self, only_join_if_shared_vertex: bool, merge_if_overlap: bool) {
         let mut features_by_folder: HashMap<String, FolderFeatures> = HashMap::new();
         self.group_features_by_folder(&mut features_by_folder);
 
         for (folder_path, (geometries, total_points, other_properties)) in features_by_folder {
-            if only_join_if_shared_vertex {
-                let groups = self.group_by_shared_vertex(geometries);
-                for geometries in groups {
-                    let merged_polygon = self.merge_group(geometries);
-                    self.create_feature(
-                        folder_path.clone(),
-                        total_points,
-                        other_properties.clone(),
-                        merged_polygon,
-                    );
+            if only_join_if_shared_vertex || merge_if_overlap {
+                let groups = self.group_by_shared_vertex(&geometries);
+                if merge_if_overlap {
+                    let flattened_groups: Vec<Geometry> =
+                        groups.iter().flat_map(|g| g.iter()).cloned().collect();
+                    let merged_group = self.group_by_overlap(&flattened_groups);
+                    println!("{:?}", merged_group);
+                    for group in merged_group {
+                        let merged_polygon = self.merge_group(group);
+                        self.create_feature(
+                            folder_path.clone(),
+                            total_points,
+                            other_properties.clone(),
+                            merged_polygon,
+                        );
+                    }
+                } else {
+                    for group in groups {
+                        let merged_polygon = self.merge_group(group);
+                        self.create_feature(
+                            folder_path.clone(),
+                            total_points,
+                            other_properties.clone(),
+                            merged_polygon,
+                        );
+                    }
                 }
             } else {
                 let merged_polygon = self.merge_group(geometries);
                 self.create_feature(folder_path, total_points, other_properties, merged_polygon);
-            };
+            }
         }
     }
 
@@ -126,7 +162,7 @@ impl LasOutlineFeatureCollection {
         }
     }
 
-    fn group_by_shared_vertex(&self, geometries: Vec<Geometry>) -> Vec<Vec<Geometry>> {
+    fn group_by_shared_vertex(&self, geometries: &[Geometry]) -> Vec<Vec<Geometry>> {
         let mut vertex_to_index: HashMap<OrderedCoord, Vec<usize>> = HashMap::new();
         let mut uf = QuickUnionUf::<UnionByRank>::new(geometries.len());
 
@@ -134,8 +170,8 @@ impl LasOutlineFeatureCollection {
             if let Value::Polygon(coords) = &geometry.value {
                 for coord in &coords[0] {
                     let ordered_coord = OrderedCoord {
-                        x: OrderedFloat(coord[0]),
-                        y: OrderedFloat(coord[1]),
+                        x: coord[0],
+                        y: coord[1],
                     };
                     if let Some(indices) = vertex_to_index.get(&ordered_coord) {
                         for &index in indices {
@@ -148,9 +184,51 @@ impl LasOutlineFeatureCollection {
         }
 
         let mut groups: HashMap<usize, Vec<Geometry>> = HashMap::new();
-        for (i, geometry) in geometries.into_iter().enumerate() {
+        for (i, geometry) in geometries.iter().enumerate() {
             let root = uf.find(i);
-            groups.entry(root).or_default().push(geometry);
+            groups.entry(root).or_default().push(geometry.clone());
+        }
+
+        groups.into_values().collect()
+    }
+
+    fn group_by_overlap(&self, geometries: &[Geometry]) -> Vec<Vec<Geometry>> {
+        let mut uf = QuickUnionUf::<UnionByRank>::new(geometries.len());
+
+        for i in 0..geometries.len() {
+            for j in (i + 1)..geometries.len() {
+                if let (Value::Polygon(coords1), Value::Polygon(coords2)) =
+                    (&geometries[i].value, &geometries[j].value)
+                {
+                    let poly1 = Polygon::new(
+                        LineString::from(
+                            coords1[0]
+                                .iter()
+                                .map(|c| Coord { x: c[0], y: c[1] })
+                                .collect::<Vec<_>>(),
+                        ),
+                        vec![],
+                    );
+                    let poly2 = Polygon::new(
+                        LineString::from(
+                            coords2[0]
+                                .iter()
+                                .map(|c| Coord { x: c[0], y: c[1] })
+                                .collect::<Vec<_>>(),
+                        ),
+                        vec![],
+                    );
+                    if poly1.intersects(&poly2) {
+                        uf.union(i, j);
+                    }
+                }
+            }
+        }
+
+        let mut groups: HashMap<usize, Vec<Geometry>> = HashMap::new();
+        for (i, geometry) in geometries.iter().enumerate() {
+            let root = uf.find(i);
+            groups.entry(root).or_default().push(geometry.clone());
         }
 
         groups.into_values().collect()

@@ -6,7 +6,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use las_poly::process_folder;
+//! use las_poly::{process_folder, ProcessConfig};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     use std::fs;
@@ -15,7 +15,20 @@
 //!     let temp_dir = tempdir()?;
 //!     let test_folder = temp_dir.path().join("test_folder");
 //!     fs::create_dir_all(&test_folder)?;
-//!     process_folder(test_folder.to_str().unwrap(),true, true, true, true,true, None)?;
+//!
+//!     let config = ProcessConfig {
+//!         folder_path: test_folder.to_str().unwrap().to_string(),
+//!         use_detailed_outline: true,
+//!         group_by_folder: true,
+//!         merge_tiled: true,
+//!         merge_if_overlap: true,
+//!         recurse: true,
+//!         guess_crs: true,
+//!         output_file: None,
+//!     };
+//!
+//!     process_folder(config)?;
+//!
 //!     // Cleanup: Remove the file created in the root if it exists
 //!     let output_file = "test_folder.geojson";
 //!     if fs::metadata(output_file).is_ok() {
@@ -65,7 +78,7 @@ use las_feature_collection::LasOutlineFeatureCollection;
 /// # Examples
 ///
 /// ```rust
-/// use las_poly::process_folder;
+/// use las_poly::{process_folder, ProcessConfig};
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     use std::fs;
@@ -75,11 +88,23 @@ use las_feature_collection::LasOutlineFeatureCollection;
 ///     let test_folder = temp_dir.path().join("test_folder");
 ///
 ///     fs::create_dir_all(&test_folder)?;
-///    let output_path = temp_dir.path().join("output.geojson").to_str().unwrap().to_string();
-///     process_folder(test_folder.to_str().unwrap(),true, true, true, false,true, Some(&output_path))?;
+///
+///     let config = ProcessConfig {
+///         folder_path: test_folder.to_str().unwrap().to_string(),
+///         use_detailed_outline: true,
+///         group_by_folder: true,
+///         merge_tiled: true,
+///         merge_if_overlap: false,
+///         recurse: true,
+///         guess_crs: true,
+///         output_file: Some(temp_dir.path().join("output.geojson").to_str().unwrap().to_string()),
+///     };
+///
+///     process_folder(config)?;
 ///     Ok(())
 /// }
 /// ```
+
 #[derive(Error, Debug)]
 pub enum LasPolyError {
     #[error("Failed to read LAS file: {0}")]
@@ -95,20 +120,25 @@ pub enum LasPolyError {
     #[error("Failed to create Proj instance: {0}")]
     ProjCreateError(#[from] proj::ProjCreateError),
 }
-pub fn process_folder(
-    folder_path: &str,
-    use_detailed_outline: bool,
-    group_by_folder: bool,
-    merge_if_shared_vertex: bool,
-    recurse: bool,
-    guess_crs: bool,
-    output_file: Option<&str>,
-) -> Result<(), LasPolyError> {
-    let path = Path::new(folder_path);
+
+#[derive(Clone)]
+pub struct ProcessConfig {
+    pub folder_path: String,
+    pub use_detailed_outline: bool,
+    pub group_by_folder: bool,
+    pub merge_tiled: bool,
+    pub merge_if_overlap: bool,
+    pub recurse: bool,
+    pub guess_crs: bool,
+    pub output_file: Option<String>,
+}
+
+pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
+    let path = Path::new(&config.folder_path);
 
     // Check if the folder exists
     if !path.exists() {
-        return Err(LasPolyError::PathError(folder_path.to_string()));
+        return Err(LasPolyError::PathError(config.folder_path));
     }
     let num_threads = num_cpus::get();
     println!("Number of threads used: {:?}", num_threads);
@@ -117,9 +147,9 @@ pub fn process_folder(
     let (tx, rx) = mpsc::channel();
 
     // Spawn a thread to walk through the directory and send file paths
-    let folder_path_string = folder_path.to_string();
+    let folder_path_string = config.folder_path.clone();
     thread::spawn(move || {
-        let walker = if recurse {
+        let walker = if config.recurse {
             WalkDir::new(folder_path_string).into_iter()
         } else {
             WalkDir::new(folder_path_string).max_depth(1).into_iter()
@@ -138,10 +168,11 @@ pub fn process_folder(
     // Spawn threads to process each LAS file
     for file_path in rx {
         let feature_tx = feature_tx.clone();
+        let config = config.clone();
         pool.execute(move || {
             // println!("Creating read thread for {:?}", file_path);
 
-            match create_polygon(&file_path, use_detailed_outline, guess_crs) {
+            match create_polygon(&file_path, config.use_detailed_outline, config.guess_crs) {
                 Ok(feature) => {
                     feature_tx.send(feature).unwrap();
                     // println!("Successfully created polygon for :{:?} ", file_path);
@@ -163,16 +194,16 @@ pub fn process_folder(
     }
 
     // Merge geometries if group_by_folder is true
-    if group_by_folder || merge_if_shared_vertex {
-        feature_collection.merge_geometries(merge_if_shared_vertex);
+    if config.group_by_folder || config.merge_tiled || config.merge_if_overlap {
+        feature_collection.merge_geometries(config.merge_tiled, config.merge_if_overlap);
     }
 
-    let path = std::path::Path::new(folder_path);
+    let path = std::path::Path::new(&config.folder_path);
     let file_stem = path
         .file_name()
         .unwrap_or_else(|| path.components().last().unwrap().as_os_str());
     let binding = format!("{}.geojson", file_stem.to_string_lossy());
-    let output_file_name = output_file.unwrap_or(&binding);
+    let output_file_name = config.output_file.as_deref().unwrap_or(&binding);
 
     feature_collection.save_to_file(output_file_name)?;
 
@@ -202,7 +233,6 @@ use proj::Proj;
 ///     Ok(())
 /// }
 /// ```
-///
 ///
 
 #[derive(Serialize)]
@@ -313,10 +343,10 @@ pub fn create_polygon(
         // Create a LineString from the points
         let line_string = LineString::from(points);
 
-        // Compute the convex hull
+        // Compute the convex_hull
         let convex_hull: Polygon<f64> = line_string.convex_hull();
 
-        // Convert the convex hull to GeoJSON
+        // Convert the convex_hull to GeoJSON
         let exterior_coords: Vec<Vec<f64>> = convex_hull
             .exterior()
             .coords()

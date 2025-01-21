@@ -43,6 +43,10 @@ struct Args {
     #[arg(short, long)]
     merge_tiled: bool,
 
+    /// Merge if polygons overlap.
+    #[arg(short = 'o', long)]
+    merge_if_overlap: bool,
+
     /// Recurse into subfolders
     #[arg(short, long)]
     recurse: bool,
@@ -54,15 +58,18 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    if let Err(e) = las_poly::process_folder(
-        &args.folder_path,
-        args.use_detailed_outline,
-        args.group_by_folder,
-        args.merge_tiled,
-        args.recurse,
-        args.guess_crs,
-        args.name.as_deref(),
-    ) {
+    let config = las_poly::ProcessConfig {
+        folder_path: args.folder_path,
+        use_detailed_outline: args.use_detailed_outline,
+        group_by_folder: args.group_by_folder,
+        merge_tiled: args.merge_tiled,
+        merge_if_overlap: args.merge_if_overlap,
+        recurse: args.recurse,
+        guess_crs: args.guess_crs,
+        output_file: args.name,
+    };
+
+    if let Err(e) = las_poly::process_folder(config) {
         eprintln!("Error: {}", e);
         process::exit(1);
     }

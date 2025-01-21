@@ -1,14 +1,18 @@
 use approx::assert_abs_diff_eq;
 use geojson::{GeoJson, Value};
-use las_poly::{create_polygon, process_folder};
+use las_poly::{create_polygon, process_folder, ProcessConfig};
 use proj::Proj;
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
 fn setup() -> tempfile::TempDir {
     tempdir().expect("Failed to create temporary directory")
+}
+
+fn normalize_path(path: &str) -> String {
+    PathBuf::from(path).to_string_lossy().replace("\\", "/")
 }
 
 #[test]
@@ -90,6 +94,7 @@ fn test_create_polygon_convex_hull() {
     );
     assert_eq!(properties.get("SourceFileDir").unwrap(), "tests/data");
 }
+
 #[test]
 fn test_geotiff_crs() {
     let file_path = "tests/crs/merged.las";
@@ -114,21 +119,25 @@ fn test_geotiff_crs() {
     );
     assert_eq!(properties.get("SourceFileDir").unwrap(), "tests/crs");
 }
+
 #[test]
 fn test_process_folder_no_group_by_folder() {
     let tempdir = setup();
     let output_path = tempdir.path().join("data.geojson");
     let folder_path = "tests/data";
 
-    let result = process_folder(
-        folder_path,
-        true,
-        false,
-        false,
-        true,
-        true,
-        Some(output_path.to_str().unwrap()),
-    );
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: true,
+        group_by_folder: false,
+        merge_tiled: false,
+        merge_if_overlap: false,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(output_path.to_str().unwrap().to_string()),
+    };
+
+    let result = process_folder(config);
     assert!(result.is_ok());
 
     // Check if the output file is created
@@ -140,8 +149,40 @@ fn test_process_folder_no_group_by_folder() {
     if let GeoJson::FeatureCollection(fc) = geojson {
         assert_eq!(fc.features.len(), 2); // Ensure there are two features
 
+        // Check the features
+        let feature1 = fc
+            .features
+            .iter()
+            .find(|f| {
+                let source_file = f
+                    .properties
+                    .as_ref()
+                    .unwrap()
+                    .get("SourceFile")
+                    .unwrap()
+                    .as_str()
+                    .unwrap();
+                normalize_path(source_file) == normalize_path("tests/data/input1.las")
+            })
+            .expect("Expected feature for input1.las");
+
+        let feature2 = fc
+            .features
+            .iter()
+            .find(|f| {
+                let source_file = f
+                    .properties
+                    .as_ref()
+                    .unwrap()
+                    .get("SourceFile")
+                    .unwrap()
+                    .as_str()
+                    .unwrap();
+                normalize_path(source_file) == normalize_path("tests/data/input2.las")
+            })
+            .expect("Expected feature for input2.las");
+
         // Check the first feature
-        let feature1 = &fc.features[0];
         assert!(feature1.geometry.is_some());
         let geometry1 = feature1.geometry.as_ref().unwrap();
         if let geojson::Value::Polygon(polygon) = &geometry1.value {
@@ -150,22 +191,8 @@ fn test_process_folder_no_group_by_folder() {
         } else {
             panic!("Expected a Polygon geometry for feature1");
         }
-        let expected_path: &Path = Path::new("tests/data/input1.las");
-
-        assert_eq!(
-            feature1
-                .properties
-                .as_ref()
-                .unwrap()
-                .get("SourceFile")
-                .unwrap()
-                .as_str()
-                .map(Path::new),
-            Some(expected_path)
-        );
 
         // Check the second feature
-        let feature2 = &fc.features[1];
         assert!(feature2.geometry.is_some());
         let geometry2 = feature2.geometry.as_ref().unwrap();
         if let geojson::Value::Polygon(polygon) = &geometry2.value {
@@ -174,18 +201,6 @@ fn test_process_folder_no_group_by_folder() {
         } else {
             panic!("Expected a Polygon geometry for feature2");
         }
-        let expected_path: &Path = Path::new("tests/data/input2.las");
-        assert_eq!(
-            feature2
-                .properties
-                .as_ref()
-                .unwrap()
-                .get("SourceFile")
-                .unwrap()
-                .as_str()
-                .map(Path::new),
-            Some(expected_path)
-        );
     } else {
         panic!("Expected a FeatureCollection");
     }
@@ -196,15 +211,19 @@ fn test_integration_workflow_group_by_folder() {
     let temp_dir = setup();
     let output_path = temp_dir.path().join("data.geojson");
     let folder_path = "tests/data";
-    let result = process_folder(
-        folder_path,
-        true,
-        true,
-        false,
-        true,
-        true,
-        Some(output_path.to_str().unwrap()),
-    );
+
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: true,
+        group_by_folder: true,
+        merge_tiled: false,
+        merge_if_overlap: false,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(output_path.to_str().unwrap().to_string()),
+    };
+
+    let result = process_folder(config);
     println!("{:?}", result);
 
     assert!(result.is_ok());
@@ -289,15 +308,19 @@ fn test_process_folder_group_by_folder_missing_sourcefiledir() {
         writer.write_point(point2).unwrap();
         writer.write_point(point3).unwrap();
     }
-    let result = process_folder(
-        temp_dir.path().to_str().unwrap(),
-        true,
-        true,
-        false,
-        false,
-        true,
-        Some(output_path.to_str().unwrap()),
-    );
+
+    let config = ProcessConfig {
+        folder_path: temp_dir.path().to_str().unwrap().to_string(),
+        use_detailed_outline: true,
+        group_by_folder: true,
+        merge_tiled: false,
+        merge_if_overlap: false,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(output_path.to_str().unwrap().to_string()),
+    };
+
+    let result = process_folder(config);
     assert!(result.is_ok());
 
     // Check if the output file is created
@@ -434,6 +457,7 @@ fn test_crs_error_transformation() {
     println!("{:?}", result);
     assert!(result.is_err());
 }
+
 #[test]
 fn test_crs_transformation() {
     let file_path = "tests/crs/BQ29_1000_4907.las";
@@ -452,6 +476,7 @@ fn test_crs_transformation() {
         panic!("Expected a Polygon geometry");
     }
 }
+
 #[test]
 fn test_proj_availability() {
     let proj = Proj::new_known_crs("EPSG:4326", "EPSG:3857", None);
@@ -484,21 +509,24 @@ fn test_proj_with_valid_wkt() {
 }
 
 #[test]
-#[ignore = "network drive required"]
+// #[ignore = "network drive required"]
 fn test_process_folder_with_merge_if_shared_vertex() {
     let temp_dir = setup();
     let output_path = temp_dir.path().join("data.geojson");
-    let folder_path = r"\\file\Research\LidarPowerline\02_LIDAR_PROJECTS\999_JCS_LIDAR_PROJECTS_G_DRIVE\13_CANTERBURY_RIVERS_MAY2022\16_ASHBURTON_AERIALS_MAY242022\09_EXPORT\01_LAS\02_LAZ_TILES";
+    let folder_path = r"\\file\Research\LidarPowerline\02_LIDAR_PROJECTS\50_RANGITATA_VP1_BATHY_20240530\03_RAW_SURVEY_DATA\RANGITATA_VP1_20243105\09_EXPORT\03_CLASSIFIED_LAS";
     println!("{:?}", folder_path);
-    let result = process_folder(
-        folder_path,
-        false,
-        false,
-        true,
-        false,
-        true,
-        Some(output_path.to_str().unwrap()),
-    );
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: false,
+        group_by_folder: false,
+        merge_tiled: true,
+        merge_if_overlap: false,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(output_path.to_str().unwrap().to_string()),
+    };
+
+    let result = process_folder(config);
     assert!(result.is_ok());
 
     // Check if the output file is created
@@ -508,7 +536,7 @@ fn test_process_folder_with_merge_if_shared_vertex() {
     let saved_content = fs::read_to_string(&output_path).unwrap();
     let geojson: GeoJson = saved_content.parse().unwrap();
     if let GeoJson::FeatureCollection(fc) = geojson {
-        assert_eq!(fc.features.len(), 1); // Assuming the features should be merged into one
+        assert_eq!(fc.features.len(), 4); // Assuming the features should be merged into one
     } else {
         panic!("Expected a FeatureCollection");
     }
