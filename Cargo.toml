@@ -18,6 +18,7 @@ serde_json = "1.0.128"
 tempfile = "3.14.0"
 thiserror = "2.0.8"
 threadpool = "1.8.1"
+union-find = "0.4.3"
 walkdir = "2.5.0"
 
 [dev-dependencies]

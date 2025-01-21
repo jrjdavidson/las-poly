@@ -5,6 +5,7 @@ use serde_json::Map;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use union_find::{QuickUnionUf, UnionByRank, UnionFind};
 
 pub struct LasOutlineFeatureCollection {
     features: Vec<Feature>,
@@ -125,53 +126,34 @@ impl LasOutlineFeatureCollection {
         }
     }
 
-    fn group_by_shared_vertex(&self, mut geometries: Vec<Geometry>) -> Vec<Vec<Geometry>> {
-        let mut groups: Vec<Vec<Geometry>> = vec![];
+    fn group_by_shared_vertex(&self, geometries: Vec<Geometry>) -> Vec<Vec<Geometry>> {
+        let mut vertex_to_index: HashMap<OrderedCoord, Vec<usize>> = HashMap::new();
+        let mut uf = QuickUnionUf::<UnionByRank>::new(geometries.len());
 
-        while let Some(geometry) = geometries.pop() {
-            println!("groups");
-            let mut group = vec![geometry];
-            let mut i = 0;
-            while i < geometries.len() {
-                let new_geometry = &geometries[i];
-                if self.has_shared_vertex(&group, new_geometry) {
-                    println!("Shared");
-                    group.push(geometries.remove(i));
-                    i = 0;
-                } else {
-                    i += 1;
-                }
-            }
-            groups.push(group);
-        }
-
-        groups
-    }
-
-    fn has_shared_vertex(&self, group: &[Geometry], new_geometry: &Geometry) -> bool {
-        if let Value::Polygon(new_coords) = &new_geometry.value {
-            let new_coords_set: std::collections::HashSet<OrderedCoord> = new_coords[0]
-                .iter()
-                .map(|c| OrderedCoord {
-                    x: OrderedFloat(c[0]),
-                    y: OrderedFloat(c[1]),
-                })
-                .collect();
-
-            for geometry in group {
-                if let Value::Polygon(coords) = &geometry.value {
-                    for coord in &coords[0] {
-                        if new_coords_set.contains(&OrderedCoord {
-                            x: OrderedFloat(coord[0]),
-                            y: OrderedFloat(coord[1]),
-                        }) {
-                            return true;
+        for (i, geometry) in geometries.iter().enumerate() {
+            if let Value::Polygon(coords) = &geometry.value {
+                for coord in &coords[0] {
+                    let ordered_coord = OrderedCoord {
+                        x: OrderedFloat(coord[0]),
+                        y: OrderedFloat(coord[1]),
+                    };
+                    if let Some(indices) = vertex_to_index.get(&ordered_coord) {
+                        for &index in indices {
+                            uf.union(i, index);
                         }
                     }
+                    vertex_to_index.entry(ordered_coord).or_default().push(i);
                 }
             }
         }
-        false
+
+        let mut groups: HashMap<usize, Vec<Geometry>> = HashMap::new();
+        for (i, geometry) in geometries.into_iter().enumerate() {
+            let root = uf.find(i);
+            groups.entry(root).or_default().push(geometry);
+        }
+
+        groups.into_values().collect()
     }
 
     fn merge_group(&self, geometries: Vec<Geometry>) -> Polygon<f64> {
