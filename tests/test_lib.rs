@@ -482,3 +482,34 @@ fn test_proj_with_valid_wkt() {
         "Failed to create Proj instance with valid WKT"
     );
 }
+
+#[test]
+#[ignore = "network drive required"]
+fn test_process_folder_with_merge_if_shared_vertex() {
+    let temp_dir = setup();
+    let output_path = temp_dir.path().join("data.geojson");
+    let folder_path = r"\\file\Research\LidarPowerline\02_LIDAR_PROJECTS\999_JCS_LIDAR_PROJECTS_G_DRIVE\13_CANTERBURY_RIVERS_MAY2022\16_ASHBURTON_AERIALS_MAY242022\09_EXPORT\01_LAS\02_LAZ_TILES";
+    println!("{:?}", folder_path);
+    let result = process_folder(
+        folder_path,
+        false,
+        false,
+        true,
+        false,
+        true,
+        Some(output_path.to_str().unwrap()),
+    );
+    assert!(result.is_ok());
+
+    // Check if the output file is created
+    assert!(output_path.exists());
+
+    // Read the GeoJSON file and assert the number of polygons
+    let saved_content = fs::read_to_string(&output_path).unwrap();
+    let geojson: GeoJson = saved_content.parse().unwrap();
+    if let GeoJson::FeatureCollection(fc) = geojson {
+        assert_eq!(fc.features.len(), 1); // Assuming the features should be merged into one
+    } else {
+        panic!("Expected a FeatureCollection");
+    }
+}

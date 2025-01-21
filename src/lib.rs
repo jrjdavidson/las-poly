@@ -27,7 +27,7 @@
 //! ```
 
 mod crs_utils;
-mod las_feature_collection;
+pub mod las_feature_collection;
 
 use crs_utils::{extract_crs, extract_crs_from_geotiff, Crs, CrsError};
 use geo::{ConvexHull, Coord, LineString, Polygon};
@@ -144,7 +144,7 @@ pub fn process_folder(
             match create_polygon(&file_path, use_detailed_outline, guess_crs) {
                 Ok(feature) => {
                     feature_tx.send(feature).unwrap();
-                    println!("Successfully created polygon for :{:?} ", file_path);
+                    // println!("Successfully created polygon for :{:?} ", file_path);
                 }
                 Err(e) => {
                     println!("Error in thread {:?}: {:?}", file_path, e);

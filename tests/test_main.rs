@@ -2,6 +2,11 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use std::path::Path;
+use tempfile::tempdir;
+
+fn setup() -> tempfile::TempDir {
+    tempdir().expect("Failed to create temporary directory")
+}
 
 #[test]
 fn test_help() {
@@ -16,19 +21,15 @@ fn test_help() {
 
 #[test]
 fn test_process_folder() {
-    let test_folder = "tests/data";
-    let output_file = "tests/data/output.geojson";
+    let tempdir = setup();
+    let output_path = tempdir.path().join("output.geojson");
 
-    // Ensure the test folder exists
-    fs::create_dir_all(test_folder).unwrap();
-
-    // Create a dummy LAS file in the test folder
-    let las_file_path = Path::new(test_folder).join("dummy.las");
+    let las_file_path = tempdir.path().join("dummy.las");
     fs::write(&las_file_path, b"dummy content").unwrap();
 
     let mut cmd = Command::cargo_bin("las-poly").unwrap();
-    cmd.arg(test_folder)
-        .arg(output_file)
+    cmd.arg(tempdir.path())
+        .arg(&output_path)
         .arg("--use-detailed-outline")
         .arg("--group-by-folder")
         .arg("--recurse")
@@ -37,13 +38,8 @@ fn test_process_folder() {
         .success();
 
     // Check if the output file is created
-    assert!(Path::new(output_file).exists());
-
-    // Clean up
-    fs::remove_file(las_file_path).unwrap();
-    fs::remove_file(output_file).unwrap();
+    assert!(Path::new(&output_path).exists());
 }
-
 #[test]
 fn test_invalid_folder() {
     let invalid_folder = "invalid_folder";
