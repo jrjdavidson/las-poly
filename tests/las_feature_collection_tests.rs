@@ -4,6 +4,7 @@ use las_poly::las_feature_collection::LasOutlineFeatureCollection;
 use serde_json::json;
 use serde_json::Map;
 use std::fs;
+use test_log::test;
 
 #[test]
 fn test_new_las_feature_collection() {
@@ -416,6 +417,44 @@ fn test_merge_geometries_with_shared_vertex_and_overlap() {
     if let Some(geometry) = &merged_feature.geometry {
         if let Value::Polygon(coords) = &geometry.value {
             assert_eq!(coords[0].len(), 7); // Convex hull should have 8 points
+        } else {
+            panic!("Expected a Polygon");
+        }
+    } else {
+        panic!("Expected a geometry");
+    }
+}
+
+#[test]
+fn test_merge_geometries_with_colinear_points() {
+    let mut collection = LasOutlineFeatureCollection::new();
+    let mut properties = Map::new();
+    properties.insert("SourceFileDir".to_string(), json!("folder1"));
+    properties.insert("Attribute1".to_string(), json!("Value1"));
+    properties.insert("number_of_points".to_string(), json!(42));
+
+    let feature1 = Feature {
+        geometry: Some(Geometry::new(Value::Polygon(vec![vec![
+            vec![0.0, 1.0],
+            vec![1.0, 1.0],
+            vec![2.0, 1.0],
+            vec![3.0, 1.0],
+            vec![0.0, 1.0],
+        ]]))),
+        properties: Some(properties.clone()),
+        id: None,
+        bbox: None,
+        foreign_members: None,
+    };
+
+    collection.add_feature(feature1);
+    collection.merge_geometries(true, false);
+
+    assert_eq!(collection.features().len(), 1);
+    let merged_feature = &collection.features()[0];
+    if let Some(geometry) = &merged_feature.geometry {
+        if let Value::Polygon(coords) = &geometry.value {
+            assert!(coords[0].is_empty(), "Expected an empty polygon");
         } else {
             panic!("Expected a Polygon");
         }

@@ -58,6 +58,10 @@ struct Args {
 }
 
 fn main() {
+    env_logger::Builder::from_default_env()
+        .filter(None, log::LevelFilter::Warn)
+        .init();
+
     let args = Args::parse();
     let config = las_poly::ProcessConfig {
         folder_path: args.folder_path,

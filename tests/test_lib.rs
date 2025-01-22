@@ -7,6 +7,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
+use test_log::test;
 
 fn setup() -> tempfile::TempDir {
     tempdir().expect("Failed to create temporary directory")
@@ -514,7 +515,6 @@ fn test_proj_with_valid_wkt() {
 
 #[test]
 #[ignore = "network drive required"]
-//"\\file\Research\LidarPowerline\02_LIDAR_PROJECTS\55a_ASHLEY_BATHY\03_RAW_SURVEY_DATA\09_EXPORT\04_RAW_LAS_TILES\840"
 fn test_process_folder_with_merge_if_shared_vertex() {
     let temp_dir = setup();
     let output_path = temp_dir.path().join("data.geojson");
@@ -759,6 +759,63 @@ fn test_process_folder_with_various_scenarios() {
     let geojson: GeoJson = geojson_str.parse().unwrap();
     if let GeoJson::FeatureCollection(fc) = geojson {
         assert_eq!(fc.features.len(), 5);
+    } else {
+        panic!("Expected a FeatureCollection");
+    }
+}
+
+#[test]
+fn test_process_folder_with_single_point_las() {
+    let temp_dir = setup();
+    let folder_path = temp_dir.path().to_str().unwrap();
+
+    // Create LAS files with points
+    let file1_path = format!("{}/file1.las", folder_path);
+
+    create_las_file(
+        &file1_path,
+        vec![Point {
+            x: 40.0,
+            y: 30.0,
+            z: 20.0,
+            ..Default::default()
+        }],
+    );
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: false,
+        group_by_folder: false,
+        merge_tiled: false,
+        merge_if_overlap: true,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(
+            temp_dir
+                .path()
+                .join("output_single_point.geojson")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+    };
+    process_folder(config).unwrap();
+    let output_path = temp_dir.path().join("output_single_point.geojson");
+    assert!(output_path.exists());
+    let geojson_str = fs::read_to_string(&output_path).unwrap();
+    let geojson: GeoJson = geojson_str.parse().unwrap();
+    if let GeoJson::FeatureCollection(fc) = geojson {
+        assert_eq!(fc.features.len(), 1);
+        let feature = &fc.features[0];
+        if let Some(geometry) = &feature.geometry {
+            if let Value::Polygon(polygon) = &geometry.value {
+                assert_eq!(polygon.len(), 1); // One polygon
+                assert_eq!(polygon[0].len(), 0); // Four coordinates (closing the polygon)
+            } else {
+                panic!("Expected an empty Polygon geometry");
+            }
+        } else {
+            panic!("Expected a geometry in the feature");
+        }
     } else {
         panic!("Expected a FeatureCollection");
     }

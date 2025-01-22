@@ -3,6 +3,7 @@ use predicates::prelude::*;
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
+use test_log::test;
 
 fn setup() -> tempfile::TempDir {
     tempdir().expect("Failed to create temporary directory")

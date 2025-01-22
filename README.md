@@ -33,6 +33,13 @@ las_poly "path/to/folder" --use_detailed_outline --group_by_folder --recurse
 - --group_by_folder: Group by folder - create one polygon outline per folder.
 - --recurse: Recurse into subfolders.
 - --guess_crs: Attempt to guess crs from a random sample of 10 points.
+
+## Logging
+You can set the log level using the `RUST_LOG` environment variable. For example, to set the log level to `info`, use the following command:
+```
+RUST_LOG=info las_poly <folder_path> [<output_name>] [--use_detailed_outline] [--group_by_folder] [--recurse]
+```
+
 ## Contributing
 Contributions are welcome! Please open an issue or submit a pull request.
 

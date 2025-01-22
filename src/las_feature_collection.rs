@@ -245,7 +245,7 @@ impl LasOutlineFeatureCollection {
     }
 
     fn merge_group(&self, geometries: Vec<Geometry>) -> Polygon<f64> {
-        geometries.into_iter().fold(
+        let merged_polygon = geometries.into_iter().fold(
             Polygon::new(LineString::new(vec![]), vec![]),
             |acc, geometry| {
                 if let Value::Polygon(geom_coords) = geometry.value {
@@ -266,7 +266,16 @@ impl LasOutlineFeatureCollection {
                     acc
                 }
             },
-        )
+        );
+        // Log a warning if the merged polygon has fewer than 4 points
+        if merged_polygon.exterior().coords().count() < 4 {
+            info!(
+                "Merged polygon has fewer than 4 points: {:?}",
+                merged_polygon.exterior().coords().collect::<Vec<_>>()
+            );
+            return Polygon::new(LineString::new(Vec::<Coord<f64>>::new()), vec![]);
+        }
+        merged_polygon
     }
 
     fn create_feature(

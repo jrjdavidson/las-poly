@@ -199,6 +199,8 @@ pub fn extract_crs_from_geotiff(
 }
 #[cfg(test)]
 mod tests {
+    use test_log::test;
+
     use super::*;
     use las::{Header, Point, Writer};
     use tempfile::tempdir;
