@@ -50,6 +50,10 @@ use serde_json::Map;
 
 use std::path::Path;
 use std::sync::mpsc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use std::thread;
 
 use thiserror::Error;
@@ -164,27 +168,43 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
     });
 
     let (feature_tx, feature_rx) = mpsc::channel();
+    let total_files = Arc::new(AtomicUsize::new(0));
+    let processed_files = Arc::new(AtomicUsize::new(0));
 
     // Spawn threads to process each LAS file
     for file_path in rx {
+        total_files.fetch_add(1, Ordering::SeqCst);
         let feature_tx = feature_tx.clone();
         let config = config.clone();
+        let processed_files = Arc::clone(&processed_files);
         pool.execute(move || {
-            // println!("Creating read thread for {:?}", file_path);
-
             match create_polygon(&file_path, config.use_detailed_outline, config.guess_crs) {
                 Ok(feature) => {
                     feature_tx.send(feature).unwrap();
-                    // println!("Successfully created polygon for :{:?} ", file_path);
+                    processed_files.fetch_add(1, Ordering::SeqCst);
                 }
                 Err(e) => {
                     println!("Error in thread {:?}: {:?}", file_path, e);
+                    processed_files.fetch_add(1, Ordering::SeqCst);
                 }
             }
         });
     }
 
     drop(feature_tx); // Close the channel to signal completion
+
+    // Spawn a thread to log progress every second
+    let total_files = Arc::clone(&total_files);
+    let processed_files = Arc::clone(&processed_files);
+    thread::spawn(move || loop {
+        let total = total_files.load(Ordering::SeqCst);
+        let processed = processed_files.load(Ordering::SeqCst);
+        println!("Processed {}/{} files", processed, total);
+        if processed >= total {
+            break;
+        }
+        thread::sleep(std::time::Duration::from_secs(1));
+    });
 
     let mut feature_collection = LasOutlineFeatureCollection::new();
 
