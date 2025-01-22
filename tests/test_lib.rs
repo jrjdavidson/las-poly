@@ -518,7 +518,7 @@ fn test_proj_with_valid_wkt() {
 }
 
 #[test]
-// #[ignore = "network drive required"]
+#[ignore = "network drive required"]
 fn test_process_folder_with_merge_if_shared_vertex() {
     let temp_dir = setup();
     let output_path = temp_dir.path().join("data.geojson");
