@@ -76,9 +76,9 @@ pub fn extract_crs(file_path: &str, guess_crs: bool) -> Result<Option<Crs>, CrsE
     }
     // If no CRS information is found, attempt to guess CRS from point data
     if guess_crs {
-        println!(
-            "No CRS found in VLRs data, attempting to guess CRS from a random sample of 10 points",
-        );
+        // println!(
+        //     "No CRS found in VLRs data, attempting to guess CRS from a random sample of 10 points",
+        // );
         let points = grab_random_points(reader, 10)?;
         if let Some(guessed_crs) = guess_crs_from_points(points) {
             return Ok(Some(guessed_crs));
@@ -89,23 +89,24 @@ pub fn extract_crs(file_path: &str, guess_crs: bool) -> Result<Option<Crs>, CrsE
 
 fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point>, CrsError> {
     let total_points = reader.header().number_of_points();
-    let num_points = num_points.min(total_points as usize); // Use the minimum between total_points and num_points
-    let mut rng = rand::thread_rng();
     let mut points = Vec::with_capacity(num_points);
+    if num_points >= total_points as usize {
+        for point in reader.points() {
+            points.push(point?);
+        }
+        Ok(points)
+    } else {
+        let mut rng = rand::thread_rng();
+        for _ in 0..num_points {
+            let random_index = rng.gen_range(0..total_points);
 
-    for (i, point) in reader.points().enumerate() {
-        let point = point?;
-        if points.len() < num_points {
-            points.push(point);
-        } else {
-            let j = rng.gen_range(0..=i);
-            if j < num_points {
-                points[j] = point;
+            reader.seek(random_index)?;
+            if let Some(point) = reader.read_point()? {
+                points.push(point);
             }
         }
+        Ok(points)
     }
-
-    Ok(points)
 }
 
 fn guess_crs_from_points(points: Vec<Point>) -> Option<Crs> {

@@ -171,6 +171,24 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
     let total_files = Arc::new(AtomicUsize::new(0));
     let succeeded_files = Arc::new(AtomicUsize::new(0));
     let failed_files = Arc::new(AtomicUsize::new(0));
+    // Spawn a thread to log progress every second
+    let total_files_cl = Arc::clone(&total_files);
+    let succeeded_files_cl = Arc::clone(&succeeded_files);
+    let failed_files_cl = Arc::clone(&failed_files);
+    thread::spawn(move || loop {
+        let total = total_files_cl.load(Ordering::SeqCst);
+        let succeeded = succeeded_files_cl.load(Ordering::SeqCst);
+        let failed = failed_files_cl.load(Ordering::SeqCst);
+        println!(
+            "Processed {}/{} files (Succeeded: {}, Failed: {})",
+            succeeded + failed,
+            total,
+            succeeded,
+            failed
+        );
+
+        thread::sleep(std::time::Duration::from_secs(1));
+    });
 
     // Spawn threads to process each LAS file
     for file_path in rx {
@@ -194,27 +212,6 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
     }
 
     drop(feature_tx); // Close the channel to signal completion
-
-    // Spawn a thread to log progress every second
-    let total_files = Arc::clone(&total_files);
-    let succeeded_files = Arc::clone(&succeeded_files);
-    let failed_files = Arc::clone(&failed_files);
-    thread::spawn(move || loop {
-        let total = total_files.load(Ordering::SeqCst);
-        let succeeded = succeeded_files.load(Ordering::SeqCst);
-        let failed = failed_files.load(Ordering::SeqCst);
-        println!(
-            "Processed {}/{} files (Succeeded: {}, Failed: {})",
-            succeeded + failed,
-            total,
-            succeeded,
-            failed
-        );
-        if succeeded + failed >= total {
-            break;
-        }
-        thread::sleep(std::time::Duration::from_secs(1));
-    });
 
     let mut feature_collection = LasOutlineFeatureCollection::new();
 
