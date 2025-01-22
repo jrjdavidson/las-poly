@@ -150,6 +150,8 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
 
     let pool = ThreadPool::new(num_threads);
     let (tx, rx) = mpsc::channel();
+    let total_files = Arc::new(AtomicUsize::new(0));
+    let total_files_cl1 = Arc::clone(&total_files);
 
     // Spawn a thread to walk through the directory and send file paths
     let folder_path_string = config.folder_path.clone();
@@ -161,15 +163,18 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
         };
 
         for entry in walker.filter_map(Result::ok) {
-            if entry.path().extension().and_then(|s| s.to_str()) == Some("las") {
-                let file_path = entry.path().to_str().unwrap().to_string();
-                tx.send(file_path).unwrap();
+            if let Some(extension) = entry.path().extension().and_then(|s| s.to_str()) {
+                if extension == "las" || extension == "laz" {
+                    total_files_cl1.fetch_add(1, Ordering::SeqCst);
+
+                    let file_path = entry.path().to_str().unwrap().to_string();
+                    tx.send(file_path).unwrap();
+                }
             }
         }
     });
 
     let (feature_tx, feature_rx) = mpsc::channel();
-    let total_files = Arc::new(AtomicUsize::new(0));
     let succeeded_files = Arc::new(AtomicUsize::new(0));
     let failed_files = Arc::new(AtomicUsize::new(0));
     // Spawn a thread to log progress every second
@@ -177,7 +182,7 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
     let succeeded_files_cl = Arc::clone(&succeeded_files);
     let failed_files_cl = Arc::clone(&failed_files);
     thread::spawn(move || loop {
-        let total = total_files_cl.load(Ordering::SeqCst);
+        let total: usize = total_files_cl.load(Ordering::SeqCst);
         let succeeded = succeeded_files_cl.load(Ordering::SeqCst);
         let failed = failed_files_cl.load(Ordering::SeqCst);
         info!(

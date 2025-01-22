@@ -9,7 +9,7 @@ clap = { version = "4.5.19", features = ["derive"] }
 env_logger = "0.11.6"
 geo = "0.28.0"
 geojson = "0.24.1"
-las = "0.9.1"
+las = { version = "0.9.1", features = ["laz-parallel"] }
 log = "0.4.25"
 num_cpus = "1.16.0"
 proj = "0.27.2"

@@ -25,6 +25,14 @@ fn create_las_file(file_path: &str, points: Vec<Point>) {
     }
 }
 
+fn create_laz_file(file_path: &str, points: Vec<Point>) {
+    let header = Header::default();
+    let mut writer = Writer::from_path(file_path, header).unwrap();
+    for point in points {
+        writer.write_point(point).unwrap();
+    }
+}
+
 #[test]
 fn test_create_polygon_simple_outline() {
     let file_path = "tests/data/input1.las";
@@ -816,6 +824,117 @@ fn test_process_folder_with_single_point_las() {
         } else {
             panic!("Expected a geometry in the feature");
         }
+    } else {
+        panic!("Expected a FeatureCollection");
+    }
+}
+
+#[test]
+fn test_create_polygon_from_laz() {
+    let temp_dir = setup();
+    let file_path = temp_dir.path().join("test.laz");
+    create_laz_file(
+        file_path.to_str().unwrap(),
+        vec![
+            Point {
+                x: 10.0,
+                y: 20.0,
+                z: 30.0,
+                ..Default::default()
+            },
+            Point {
+                x: -10.0,
+                y: -20.0,
+                z: -30.0,
+                ..Default::default()
+            },
+        ],
+    );
+
+    let result = create_polygon(file_path.to_str().unwrap(), true, true);
+    assert!(result.is_ok());
+    let feature = result.unwrap();
+    assert!(feature.geometry.is_some());
+
+    // Additional assertions
+    let geometry = feature.geometry.unwrap();
+    if let geojson::Value::Polygon(polygon) = geometry.value {
+        assert_eq!(polygon.len(), 1); // Ensure there's one polygon
+        assert!(polygon[0].len() > 4); // Ensure the polygon has more than 5 points for detailed outline
+    } else {
+        panic!("Expected a Polygon geometry");
+    }
+}
+
+#[test]
+fn test_process_folder_with_laz_files() {
+    let temp_dir = setup();
+    let folder_path = temp_dir.path().to_str().unwrap();
+
+    // Create LAZ files with points
+    let file1_path = format!("{}/file1.laz", folder_path);
+    let file2_path = format!("{}/file2.laz", folder_path);
+
+    create_laz_file(
+        &file1_path,
+        vec![
+            Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                ..Default::default()
+            },
+            Point {
+                x: 1.0,
+                y: 1.0,
+                z: 0.0,
+                ..Default::default()
+            },
+        ],
+    );
+
+    create_laz_file(
+        &file2_path,
+        vec![
+            Point {
+                x: 2.0,
+                y: 2.0,
+                z: 0.0,
+                ..Default::default()
+            },
+            Point {
+                x: 3.0,
+                y: 3.0,
+                z: 0.0,
+                ..Default::default()
+            },
+        ],
+    );
+
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: false,
+        group_by_folder: false,
+        merge_tiled: false,
+        merge_if_overlap: false,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(
+            temp_dir
+                .path()
+                .join("output_laz.geojson")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+    };
+    process_folder(config).unwrap();
+    let output_path = temp_dir.path().join("output_laz.geojson");
+    assert!(output_path.exists());
+    let geojson_str = fs::read_to_string(&output_path).unwrap();
+    let geojson: GeoJson = geojson_str.parse().unwrap();
+    if let GeoJson::FeatureCollection(fc) = geojson {
+        assert_eq!(fc.features.len(), 2);
     } else {
         panic!("Expected a FeatureCollection");
     }
