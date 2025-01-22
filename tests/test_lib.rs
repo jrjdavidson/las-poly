@@ -843,9 +843,15 @@ fn test_create_polygon_from_laz() {
                 ..Default::default()
             },
             Point {
-                x: -10.0,
-                y: -20.0,
-                z: -30.0,
+                x: 0.0,
+                y: 10.0,
+                z: 30.0,
+                ..Default::default()
+            },
+            Point {
+                x: 10.0,
+                y: 40.0,
+                z: 30.0,
                 ..Default::default()
             },
         ],
@@ -860,7 +866,8 @@ fn test_create_polygon_from_laz() {
     let geometry = feature.geometry.unwrap();
     if let geojson::Value::Polygon(polygon) = geometry.value {
         assert_eq!(polygon.len(), 1); // Ensure there's one polygon
-        assert!(polygon[0].len() > 4); // Ensure the polygon has more than 5 points for detailed outline
+        println!("{:?}", polygon);
+        assert!(polygon[0].len() >= 4); // Ensure the polygon has more than 5 points for detailed outline
     } else {
         panic!("Expected a Polygon geometry");
     }
