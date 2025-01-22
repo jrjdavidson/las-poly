@@ -139,7 +139,7 @@ impl LasOutlineFeatureCollection {
                 .unwrap();
             let mut other_properties = HashMap::new();
             for (key, value) in feature.properties.as_ref().unwrap().iter() {
-                if key != "SourceFileDir" && key != "number_of_points" {
+                if key != "SourceFileDir" && key != "SourceFile" && key != "number_of_points" {
                     if let Some(value_str) = value.as_str() {
                         other_properties
                             .entry(key.clone())
