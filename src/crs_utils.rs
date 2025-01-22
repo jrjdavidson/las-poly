@@ -1,5 +1,5 @@
 use las::{Point, Reader};
-use rand::seq::SliceRandom;
+use rand::Rng;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq)]
@@ -91,13 +91,17 @@ fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point
     let total_points = reader.header().number_of_points();
     let num_points = num_points.min(total_points as usize); // Use the minimum between total_points and num_points
     let mut rng = rand::thread_rng();
-    let mut indices: Vec<u64> = (0..total_points).collect();
-    indices.shuffle(&mut rng);
     let mut points = Vec::with_capacity(num_points);
-    for &index in indices.iter().take(num_points) {
-        reader.seek(index)?;
-        if let Some(point) = reader.read_point()? {
+
+    for (i, point) in reader.points().enumerate() {
+        let point = point?;
+        if points.len() < num_points {
             points.push(point);
+        } else {
+            let j = rng.gen_range(0..=i);
+            if j < num_points {
+                points[j] = point;
+            }
         }
     }
 
@@ -109,18 +113,29 @@ fn guess_crs_from_points(points: Vec<Point>) -> Option<Crs> {
         return None;
     }
 
-    // Check if all points are within the bounds of EPSG:4326
-    if points
-        .iter()
-        .all(|point| point.x > -180.0 && point.x < 180.0 && point.y > -90.0 && point.y < 90.0)
-    {
-        return Some(Crs::Wkt("EPSG:4326".to_string()));
-    };
+    let mut is_epsg_4326 = true;
+    let mut is_epsg_2193 = true;
 
-    // Check if all points are within the bounds of EPSG:2193
-    if points.iter().all(|point| {
-        point.x > 800000.0 && point.x < 2400000.0 && point.y > 4000000.0 && point.y < 9000000.0
-    }) {
+    for point in points.iter() {
+        if !(point.x > -180.0 && point.x < 180.0 && point.y > -90.0 && point.y < 90.0) {
+            is_epsg_4326 = false;
+        }
+        if !(point.x > 800000.0
+            && point.x < 2400000.0
+            && point.y > 4000000.0
+            && point.y < 9000000.0)
+        {
+            is_epsg_2193 = false;
+        }
+        if !is_epsg_4326 && !is_epsg_2193 {
+            return None;
+        }
+    }
+
+    if is_epsg_4326 {
+        return Some(Crs::Wkt("EPSG:4326".to_string()));
+    }
+    if is_epsg_2193 {
         return Some(Crs::Wkt("EPSG:2193".to_string()));
     }
 
