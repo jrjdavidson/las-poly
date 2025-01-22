@@ -233,7 +233,6 @@ fn test_integration_workflow_group_by_folder() {
     };
 
     let result = process_folder(config);
-    println!("{:?}", result);
 
     assert!(result.is_ok());
 
@@ -338,7 +337,6 @@ fn test_process_folder_group_by_folder_missing_sourcefiledir() {
     // Read the file and perform checks
     let geojson_str = fs::read_to_string(output_path).unwrap();
     let geojson: GeoJson = geojson_str.parse().unwrap();
-    println!("{:?}", geojson);
     if let GeoJson::FeatureCollection(fc) = geojson {
         assert!(!fc.features.is_empty());
 
@@ -389,7 +387,6 @@ fn test_empty_las_file() {
     }
 
     let result = create_polygon(current_dir_file_path.to_str().unwrap(), false, true);
-    println!("{:?}", result);
     assert!(result.is_err());
 }
 
@@ -443,7 +440,6 @@ fn test_detailed_outline() {
         }
     }
     let result = create_polygon(file_path.to_str().unwrap(), true, true);
-    println!("{:?}", result);
     assert!(result.is_ok());
     let feature = result.unwrap();
     assert!(feature.geometry.is_some());
@@ -463,7 +459,6 @@ fn test_crs_error_transformation() {
     let file_path = "tests/crs/210728_035051_Scanner_1.las";
 
     let result = create_polygon(file_path, false, true);
-    println!("{:?}", result);
     assert!(result.is_err());
 }
 
@@ -519,11 +514,11 @@ fn test_proj_with_valid_wkt() {
 
 #[test]
 #[ignore = "network drive required"]
+//"\\file\Research\LidarPowerline\02_LIDAR_PROJECTS\55a_ASHLEY_BATHY\03_RAW_SURVEY_DATA\09_EXPORT\04_RAW_LAS_TILES\840"
 fn test_process_folder_with_merge_if_shared_vertex() {
     let temp_dir = setup();
     let output_path = temp_dir.path().join("data.geojson");
     let folder_path = r"\\file\Research\LidarPowerline\02_LIDAR_PROJECTS\50_RANGITATA_VP1_BATHY_20240530\03_RAW_SURVEY_DATA\RANGITATA_VP1_20243105\09_EXPORT\03_CLASSIFIED_LAS";
-    println!("{:?}", folder_path);
     let config = ProcessConfig {
         folder_path: folder_path.to_string(),
         use_detailed_outline: false,

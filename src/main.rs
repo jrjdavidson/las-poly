@@ -16,7 +16,8 @@
 //! las_poly --folder_path "path/to/folder" --use_detailed_outline --group_by_folder --recurse
 //! ```
 use clap::Parser;
-use std::process;
+use log::error;
+use std::process; // Add this line to import the logging macros
 
 /// Command-line arguments structure
 #[derive(Parser)]
@@ -70,7 +71,7 @@ fn main() {
     };
 
     if let Err(e) = las_poly::process_folder(config) {
-        eprintln!("Error: {}", e);
+        error!("Error: {}", e);
         process::exit(1);
     }
 }

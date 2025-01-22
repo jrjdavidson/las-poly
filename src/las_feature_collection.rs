@@ -1,5 +1,6 @@
 use geo::{ConvexHull, Coord, Intersects, LineString, Polygon};
 use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
+use log::info;
 use serde_json::Map;
 use std::fs::File;
 use std::io::Write;
@@ -62,7 +63,7 @@ impl LasOutlineFeatureCollection {
         let geojson = GeoJson::FeatureCollection(feature_collection);
         let mut file = File::create(output_file_name)?;
         file.write_all(geojson.to_string().as_bytes())?;
-        println!("Merged polygons saved to {}", output_file_name);
+        info!("Merged polygons saved to {}", output_file_name);
         Ok(())
     }
 

@@ -246,7 +246,6 @@ fn test_merge_geometries_with_shared_vertex() {
     if let Some(geometry) = &merged_feature1.geometry {
         if let Value::Polygon(coords) = &geometry.value {
             assert_eq!(coords[0].len(), 4);
-            println!("{:?}", coords);
         } else {
             panic!("Expected a Polygon");
         }
@@ -256,7 +255,6 @@ fn test_merge_geometries_with_shared_vertex() {
     if let Some(geometry) = &merged_feature2.geometry {
         if let Value::Polygon(coords) = &geometry.value {
             assert_eq!(coords[0].len(), 7);
-            println!("{:?}", coords);
         } else {
             panic!("Expected a Polygon");
         }

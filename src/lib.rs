@@ -63,6 +63,7 @@ use walkdir::WalkDir;
 use geojson::Feature;
 use geojson::{Geometry, Value};
 use las_feature_collection::LasOutlineFeatureCollection;
+use log::{error, info}; // Add this line to import the logging macros
 
 /// Processes a folder containing LAS files and generates GeoJSON polygons.
 ///
@@ -145,7 +146,7 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
         return Err(LasPolyError::PathError(config.folder_path));
     }
     let num_threads = num_cpus::get();
-    println!("Number of threads used: {:?}", num_threads);
+    info!("Number of threads used: {:?}", num_threads);
 
     let pool = ThreadPool::new(num_threads);
     let (tx, rx) = mpsc::channel();
@@ -179,7 +180,7 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
         let total = total_files_cl.load(Ordering::SeqCst);
         let succeeded = succeeded_files_cl.load(Ordering::SeqCst);
         let failed = failed_files_cl.load(Ordering::SeqCst);
-        println!(
+        info!(
             "Processed {}/{} files (Succeeded: {}, Failed: {})",
             succeeded + failed,
             total,
@@ -204,7 +205,7 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
                     succeeded_files.fetch_add(1, Ordering::SeqCst);
                 }
                 Err(e) => {
-                    println!("Error in thread {:?}: {:?}", file_path, e);
+                    error!("Error in thread {:?}: {:?}", file_path, e);
                     failed_files.fetch_add(1, Ordering::SeqCst);
                 }
             }
@@ -319,7 +320,7 @@ pub fn create_polygon(
             )?)
         }
         None => {
-            println!("No CRS found for {}. Will not add data.", file_path);
+            info!("No CRS found for {}. Will not add data.", file_path);
             None
         }
     };
