@@ -74,10 +74,19 @@ impl LasOutlineFeatureCollection {
             if only_join_if_shared_vertex || merge_if_overlap {
                 let groups = self.group_by_shared_vertex(&geometries);
                 if merge_if_overlap {
-                    let flattened_groups: Vec<Geometry> =
-                        groups.iter().flat_map(|g| g.iter()).cloned().collect();
-                    let merged_group = self.group_by_overlap(&flattened_groups);
-                    println!("{:?}", merged_group);
+                    let mut shared_geometries = Vec::new();
+                    for group in groups {
+                        let merged_polygon = self.merge_group(group);
+                        let exterior_coords: Vec<Vec<f64>> = merged_polygon
+                            .exterior()
+                            .coords()
+                            .map(|c| vec![c.x, c.y])
+                            .collect();
+                        let geometry = Geometry::new(Value::Polygon(vec![exterior_coords]));
+                        shared_geometries.push(geometry);
+                    }
+
+                    let merged_group = self.group_by_overlap(&shared_geometries);
                     for group in merged_group {
                         let merged_polygon = self.merge_group(group);
                         self.create_feature(

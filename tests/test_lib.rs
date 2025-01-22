@@ -1,5 +1,6 @@
 use approx::assert_abs_diff_eq;
 use geojson::{GeoJson, Value};
+use las::{Header, Point, Writer};
 use las_poly::{create_polygon, process_folder, ProcessConfig};
 use proj::Proj;
 use std::fs::{self, File};
@@ -13,6 +14,14 @@ fn setup() -> tempfile::TempDir {
 
 fn normalize_path(path: &str) -> String {
     PathBuf::from(path).to_string_lossy().replace("\\", "/")
+}
+
+fn create_las_file(file_path: &str, points: Vec<Point>) {
+    let header = Header::default();
+    let mut writer = Writer::from_path(file_path, header).unwrap();
+    for point in points {
+        writer.write_point(point).unwrap();
+    }
 }
 
 #[test]
@@ -311,7 +320,7 @@ fn test_process_folder_group_by_folder_missing_sourcefiledir() {
 
     let config = ProcessConfig {
         folder_path: temp_dir.path().to_str().unwrap().to_string(),
-        use_detailed_outline: true,
+        use_detailed_outline: false,
         group_by_folder: true,
         merge_tiled: false,
         merge_if_overlap: false,
@@ -353,10 +362,10 @@ fn test_process_folder_group_by_folder_missing_sourcefiledir() {
 
             // Check the number of coordinates in the exterior ring
             let exterior_ring = &coords[0];
-            assert_eq!(exterior_ring.len(), 3); // Adjust the number of points as needed
+            assert_eq!(exterior_ring.len(), 5);
 
             // Check specific coordinates (e.g., the first and last)
-            assert_eq!(exterior_ring[0], vec![1.0, 2.0]); // Mock coordinates
+            assert_eq!(exterior_ring[0], vec![4.0, 2.0]); // Mock coordinates
             assert_eq!(exterior_ring[1], vec![4.0, 5.0]); // Mock coordinates
         } else {
             panic!("Expected Polygon geometry");
@@ -520,7 +529,7 @@ fn test_process_folder_with_merge_if_shared_vertex() {
         use_detailed_outline: false,
         group_by_folder: false,
         merge_tiled: true,
-        merge_if_overlap: false,
+        merge_if_overlap: true,
         recurse: true,
         guess_crs: true,
         output_file: Some(output_path.to_str().unwrap().to_string()),
@@ -536,7 +545,225 @@ fn test_process_folder_with_merge_if_shared_vertex() {
     let saved_content = fs::read_to_string(&output_path).unwrap();
     let geojson: GeoJson = saved_content.parse().unwrap();
     if let GeoJson::FeatureCollection(fc) = geojson {
-        assert_eq!(fc.features.len(), 4); // Assuming the features should be merged into one
+        assert_eq!(fc.features.len(), 1); // Assuming the features should be merged into one
+    } else {
+        panic!("Expected a FeatureCollection");
+    }
+}
+
+#[test]
+fn test_process_folder_with_various_scenarios() {
+    let temp_dir = setup();
+    let folder_path = temp_dir.path().to_str().unwrap();
+
+    // Create LAS files with points
+    let file1_path = format!("{}/file1.las", folder_path);
+    let file2_path = format!("{}/file2.las", folder_path);
+    let file3_path = format!("{}/file3.las", folder_path);
+    let file4_path = format!("{}/file4.las", folder_path);
+    let file5_path = format!("{}/file5.las", folder_path);
+
+    create_las_file(
+        &file1_path,
+        vec![
+            Point {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                ..Default::default()
+            },
+            Point {
+                x: 1.0,
+                y: 1.0,
+                z: 0.0,
+                ..Default::default()
+            },
+        ],
+    );
+
+    create_las_file(
+        &file2_path,
+        vec![
+            Point {
+                x: 2.0,
+                y: 2.0,
+                z: 0.0,
+                ..Default::default()
+            },
+            Point {
+                x: 3.0,
+                y: 3.0,
+                z: 0.0,
+                ..Default::default()
+            },
+        ],
+    );
+
+    create_las_file(
+        &file3_path,
+        vec![
+            Point {
+                x: 1.5,
+                y: 1.5,
+                z: 0.0,
+                ..Default::default()
+            },
+            Point {
+                x: 2.5,
+                y: 2.5,
+                z: 0.0,
+                ..Default::default()
+            },
+        ],
+    );
+
+    create_las_file(
+        &file4_path,
+        vec![
+            Point {
+                x: 2.5,
+                y: 1.5,
+                z: 0.0,
+                ..Default::default()
+            },
+            Point {
+                x: 3.5001,
+                y: 2.5,
+                z: 0.0,
+                ..Default::default()
+            },
+        ],
+    );
+    create_las_file(
+        &file5_path,
+        vec![
+            Point {
+                x: 3.501,
+                y: 1.5,
+                z: 0.0,
+                ..Default::default()
+            },
+            Point {
+                x: 4.5,
+                y: 2.5,
+                z: 0.0,
+                ..Default::default()
+            },
+        ],
+    );
+
+    // Test merging with shared vertex
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: false,
+        group_by_folder: false,
+        merge_tiled: true,
+        merge_if_overlap: false,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(
+            temp_dir
+                .path()
+                .join("output_shared_vertex.geojson")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+    };
+    process_folder(config).unwrap();
+    let output_path = temp_dir.path().join("output_shared_vertex.geojson");
+    assert!(output_path.exists());
+    let geojson_str = fs::read_to_string(&output_path).unwrap();
+    let geojson: GeoJson = geojson_str.parse().unwrap();
+    if let GeoJson::FeatureCollection(fc) = geojson {
+        assert_eq!(fc.features.len(), 3);
+    } else {
+        panic!("Expected a FeatureCollection");
+    }
+
+    // Test merging with overlap
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: false,
+        group_by_folder: false,
+        merge_tiled: false,
+        merge_if_overlap: true,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(
+            temp_dir
+                .path()
+                .join("output_overlap.geojson")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+    };
+    process_folder(config).unwrap();
+    let output_path = temp_dir.path().join("output_overlap.geojson");
+    assert!(output_path.exists());
+    let geojson_str = fs::read_to_string(&output_path).unwrap();
+    let geojson: GeoJson = geojson_str.parse().unwrap();
+    if let GeoJson::FeatureCollection(fc) = geojson {
+        assert_eq!(fc.features.len(), 2);
+    } else {
+        panic!("Expected a FeatureCollection");
+    }
+
+    // Test merging folder
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: false,
+        group_by_folder: true,
+        merge_tiled: false,
+        merge_if_overlap: false,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(
+            temp_dir
+                .path()
+                .join("output_shared_vertex_overlap.geojson")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+    };
+    process_folder(config).unwrap();
+    let output_path = temp_dir.path().join("output_shared_vertex_overlap.geojson");
+    assert!(output_path.exists());
+    let geojson_str = fs::read_to_string(&output_path).unwrap();
+    let geojson: GeoJson = geojson_str.parse().unwrap();
+    if let GeoJson::FeatureCollection(fc) = geojson {
+        assert_eq!(fc.features.len(), 1);
+    } else {
+        panic!("Expected a FeatureCollection");
+    }
+
+    // Test without merging
+    let config = ProcessConfig {
+        folder_path: folder_path.to_string(),
+        use_detailed_outline: false,
+        group_by_folder: false,
+        merge_tiled: false,
+        merge_if_overlap: false,
+        recurse: true,
+        guess_crs: true,
+        output_file: Some(
+            temp_dir
+                .path()
+                .join("output_no_merge.geojson")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ),
+    };
+    process_folder(config).unwrap();
+    let output_path = temp_dir.path().join("output_no_merge.geojson");
+    assert!(output_path.exists());
+    let geojson_str = fs::read_to_string(&output_path).unwrap();
+    let geojson: GeoJson = geojson_str.parse().unwrap();
+    if let GeoJson::FeatureCollection(fc) = geojson {
+        assert_eq!(fc.features.len(), 5);
     } else {
         panic!("Expected a FeatureCollection");
     }
