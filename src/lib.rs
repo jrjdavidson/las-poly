@@ -63,7 +63,7 @@ use walkdir::WalkDir;
 use geojson::Feature;
 use geojson::{Geometry, Value};
 use las_feature_collection::LasOutlineFeatureCollection;
-use log::{error, info}; // Add this line to import the logging macros
+use log::{debug, error, info}; // Add this line to import the logging macros
 
 /// Processes a folder containing LAS files and generates GeoJSON polygons.
 ///
@@ -146,7 +146,7 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
         return Err(LasPolyError::PathError(config.folder_path));
     }
     let num_threads = num_cpus::get();
-    info!("Number of threads used: {:?}", num_threads);
+    debug!("Number of threads used: {:?}", num_threads);
 
     let pool = ThreadPool::new(num_threads);
     let (tx, rx) = mpsc::channel();
@@ -168,6 +168,7 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
                     total_files_cl1.fetch_add(1, Ordering::SeqCst);
 
                     let file_path = entry.path().to_str().unwrap().to_string();
+                    debug!("Spawning thread for : {:?}", file_path);
                     tx.send(file_path).unwrap();
                 }
             }
@@ -207,6 +208,7 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
                 Ok(feature) => {
                     feature_tx.send(feature).unwrap();
                     succeeded_files.fetch_add(1, Ordering::SeqCst);
+                    debug!("Processed file successfully: {:?}", file_path);
                 }
                 Err(e) => {
                     error!("Error in thread {:?}: {:?}", file_path, e);
@@ -332,6 +334,7 @@ pub fn create_polygon(
             }
         }
     };
+    debug!("CRS: {:?}", crs);
 
     // Create a Proj instance for transforming coordinates to EPSG:4326
     let to_epsg4326 = match Proj::new_known_crs(&crs, "EPSG:4326", None) {

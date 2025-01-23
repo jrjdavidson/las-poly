@@ -58,6 +58,7 @@ struct Args {
 }
 
 fn main() {
+    //env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
     env_logger::Builder::from_default_env().init();
 
     let args = Args::parse();
