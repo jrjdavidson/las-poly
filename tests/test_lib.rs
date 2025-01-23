@@ -866,7 +866,6 @@ fn test_create_polygon_from_laz() {
     let geometry = feature.geometry.unwrap();
     if let geojson::Value::Polygon(polygon) = geometry.value {
         assert_eq!(polygon.len(), 1); // Ensure there's one polygon
-        println!("{:?}", polygon);
         assert!(polygon[0].len() >= 4); // Ensure the polygon has more than 5 points for detailed outline
     } else {
         panic!("Expected a Polygon geometry");

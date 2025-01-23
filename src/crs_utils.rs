@@ -42,7 +42,9 @@ pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
             .chain(header.evlrs().iter())
             .find_map(|vlr| match vlr.user_id.as_str() {
                 "LASF_Projection" => match vlr.record_id {
-                    2111 | 2112 => Some(Crs::Wkt(String::from_utf8_lossy(&vlr.data).to_string())),
+                    2111 | 2112 => Some(Crs::Wkt(
+                        String::from_utf8_lossy(&vlr.data).trim().to_string(),
+                    )),
                     _ => None,
                 },
                 _ => None,
@@ -80,11 +82,10 @@ pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
     Ok(None)
 }
 
-pub fn guess_las_crs(file_path: &str, num_points: usize) -> Result<Option<String>, CrsError> {
+pub fn guess_las_crs(file_path: &str, num_points: usize) -> Result<String, CrsError> {
     let reader = Reader::from_path(file_path)?;
     let points = grab_random_points(reader, num_points)?;
-    let crs = guess_crs_from_points(points);
-    Ok(crs)
+    guess_crs_from_points(points)
 }
 
 fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point>, CrsError> {
@@ -109,9 +110,9 @@ fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point
     }
 }
 
-fn guess_crs_from_points(points: Vec<Point>) -> Option<String> {
+fn guess_crs_from_points(points: Vec<Point>) -> Result<String, CrsError> {
     if points.is_empty() {
-        return None;
+        return Err(CrsError::UnableToGuessCrs);
     }
 
     let mut is_epsg_4326 = true;
@@ -129,18 +130,18 @@ fn guess_crs_from_points(points: Vec<Point>) -> Option<String> {
             is_epsg_2193 = false;
         }
         if !is_epsg_4326 && !is_epsg_2193 {
-            return None;
+            return Err(CrsError::UnableToGuessCrs);
         }
     }
 
     if is_epsg_4326 {
-        return Some("EPSG:4326".to_string());
+        return Ok("EPSG:4326".to_string());
     }
     if is_epsg_2193 {
-        return Some("EPSG:2193".to_string());
+        return Ok("EPSG:2193".to_string());
     }
 
-    None
+    Err(CrsError::UnableToGuessCrs)
 }
 
 pub fn extract_crs_from_geotiff(
@@ -202,7 +203,6 @@ pub fn extract_crs_from_geotiff(
             proj_string = proj_string[start..].to_string();
         }
     }
-    println!("{:?}", proj_string);
     Ok(proj_string.trim().to_string())
 }
 
@@ -246,8 +246,8 @@ mod tests {
         writer.close().unwrap();
         let crs = extract_crs(file_path.to_str().unwrap()).unwrap();
         assert!(crs.is_none());
-        let guessed_crs = guess_las_crs(file_path.to_str().unwrap(), 10).unwrap();
-        assert!(guessed_crs.is_some());
+        let guessed_crs = guess_las_crs(file_path.to_str().unwrap(), 10);
+        assert!(guessed_crs.is_ok());
 
         assert_eq!(guessed_crs.unwrap(), ("EPSG:4326".to_string()));
     }
@@ -357,7 +357,7 @@ mod tests {
             assert!(wkt.is_empty());
 
             // Check if proj accepts the WKT
-            let proj = Proj::new(wkt.trim_end_matches(char::from(0)));
+            let proj = Proj::new(&wkt);
             assert!(proj.is_err());
         } else {
             panic!("Expected CRS information in VLRs");

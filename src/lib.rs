@@ -311,40 +311,41 @@ impl FeatureProperties<'_> {
 pub fn create_polygon(
     file_path: &str,
     use_detailed_outline: bool,
-    guess_crs: bool,
+    mut guess_crs: bool,
 ) -> Result<Feature, LasPolyError> {
     // Open the LAS file
     let mut crs = match extract_crs(file_path)? {
         // Check the CRS of the LAS file
-        Some(Crs::Wkt(wkt)) => Some(wkt),
+        Some(Crs::Wkt(wkt)) => wkt,
         Some(Crs::GeoTiff(geo_key_directory, geo_double_params, geo_ascii_params)) => {
-            Some(extract_crs_from_geotiff(
+            extract_crs_from_geotiff(
                 &geo_key_directory,
                 geo_double_params.as_deref(),
                 geo_ascii_params.as_deref(),
-            )?)
+            )?
         }
         None => {
-            // If no CRS information is found, attempt to guess CRS from point data
-
-            None
-        }
-    };
-
-    if !validate_crs_string(&crs) {
-        if guess_crs {
-            crs = guess_las_crs(file_path, 10)?;
-            if !validate_crs_string(&crs) {
-                return Err(LasPolyError::CrsError(CrsError::UnableToGuessCrs));
+            if guess_crs {
+                guess_crs = false; // don't guess again
+                guess_las_crs(file_path, 10)?
+            } else {
+                return Err(LasPolyError::CrsError(CrsError::MissingCrs));
             }
-        } else {
-            return Err(LasPolyError::CrsError(CrsError::MissingCrs));
         }
     };
 
     // Create a Proj instance for transforming coordinates to EPSG:4326
-    let to_epsg4326 =
-        Proj::new_known_crs(&crs.unwrap(), "EPSG:4326", None).map_err(LasPolyError::from)?;
+    let to_epsg4326 = match Proj::new_known_crs(&crs, "EPSG:4326", None) {
+        Ok(proj) => proj,
+        Err(e) => {
+            if guess_crs {
+                crs = guess_las_crs(file_path, 10)?;
+                Proj::new_known_crs(&crs, "EPSG:4326", None)?
+            } else {
+                return Err(LasPolyError::ProjCreateError(e));
+            }
+        }
+    };
     let mut reader = Reader::from_path(file_path)?;
 
     let geojson_polygon = if !use_detailed_outline {
@@ -426,11 +427,4 @@ pub fn create_polygon(
     };
 
     Ok(feature)
-}
-
-fn validate_crs_string(crs_option: &Option<String>) -> bool {
-    match crs_option {
-        None => false,
-        Some(crs_string) => Proj::new(crs_string.as_str()).is_ok(),
-    }
 }
