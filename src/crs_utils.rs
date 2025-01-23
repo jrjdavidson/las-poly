@@ -1,4 +1,8 @@
+use core::num;
+use std::path::Path;
+
 use las::{Point, Reader};
+use log::debug;
 use rand::Rng;
 use thiserror::Error;
 
@@ -41,10 +45,16 @@ pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
             .iter()
             .chain(header.evlrs().iter())
             .find_map(|vlr| match vlr.user_id.as_str() {
-                "LASF_Projection" => match vlr.record_id {
-                    2111 | 2112 => Some(Crs::Wkt(
-                        String::from_utf8_lossy(&vlr.data).trim().to_string(),
-                    )),
+                "LASF_Projection" | "liblas" => match vlr.record_id {
+                    // liblas is used by PDAL?
+                    2111 | 2112 => {
+                        let string = String::from_utf8_lossy(&vlr.data).trim().to_string();
+                        if string.is_empty() {
+                            None
+                        } else {
+                            Some(Crs::Wkt(string))
+                        }
+                    }
                     _ => None,
                 },
                 _ => None,
@@ -60,6 +70,7 @@ pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
 
         for vlr in header.vlrs().iter() {
             if vlr.user_id.as_str() == "LASF_Projection" {
+                // check for liblas?
                 match vlr.record_id {
                     34735 => geo_key_directory_tag = Some(vlr.data.clone()),
                     34736 => geo_double_params_tag = Some(vlr.data.clone()),
@@ -83,9 +94,23 @@ pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
 }
 
 pub fn guess_las_crs(file_path: &str, num_points: usize) -> Result<String, CrsError> {
+    debug!("Guessing CRS from points for {}", file_path);
     let reader = Reader::from_path(file_path)?;
-    let points = grab_random_points(reader, num_points)?;
+    let points = if Path::new(file_path).extension().and_then(|s| s.to_str()) == Some("laz") {
+        // if the file is a laz file, we read the first n points instead of random points.
+        // this is because laz files are compressed and it is too slow to read random points.
+        grab_first_n_points(reader, 10)?
+    } else {
+        grab_random_points(reader, num_points)?
+    };
     guess_crs_from_points(points)
+}
+fn grab_first_n_points(mut reader: Reader, mut num_points: usize) -> Result<Vec<Point>, CrsError> {
+    let mut points = Vec::with_capacity(num_points);
+    let total_points = reader.header().number_of_points();
+    num_points = num_points.min(total_points as usize);
+    reader.read_points_into(num_points.try_into().unwrap(), &mut points)?;
+    Ok(points)
 }
 
 fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point>, CrsError> {
@@ -347,21 +372,10 @@ mod tests {
     }
     #[test]
     fn empty_wkt() {
-        use proj::Proj;
-
         // Test for VLRs data in the specified LAS file
         let file_path = "tests/crs/5points_14.las";
         let crs = extract_crs(file_path).unwrap();
-        assert!(crs.is_some());
-        if let Some(Crs::Wkt(wkt)) = crs {
-            assert!(wkt.is_empty());
-
-            // Check if proj accepts the WKT
-            let proj = Proj::new(&wkt);
-            assert!(proj.is_err());
-        } else {
-            panic!("Expected CRS information in VLRs");
-        }
+        assert!(crs.is_none());
     }
     #[test]
     fn test_extract_crs_from_geo_tiff() {
