@@ -198,7 +198,6 @@ pub fn process_folder(config: ProcessConfig) -> Result<(), LasPolyError> {
 
     // Spawn threads to process each LAS file
     for file_path in rx {
-        total_files.fetch_add(1, Ordering::SeqCst);
         let feature_tx = feature_tx.clone();
         let config = config.clone();
         let succeeded_files = Arc::clone(&succeeded_files);
