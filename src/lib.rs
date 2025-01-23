@@ -42,7 +42,7 @@
 mod crs_utils;
 pub mod las_feature_collection;
 
-use crs_utils::{extract_crs, extract_crs_from_geotiff, Crs, CrsError};
+use crs_utils::{extract_crs, extract_crs_from_geotiff, guess_las_crs, Crs, CrsError};
 use geo::{ConvexHull, Coord, LineString, Polygon};
 use las::Reader;
 use serde::Serialize;
@@ -314,7 +314,7 @@ pub fn create_polygon(
     guess_crs: bool,
 ) -> Result<Feature, LasPolyError> {
     // Open the LAS file
-    let mut crs = match extract_crs(file_path, guess_crs)? {
+    let mut crs = match extract_crs(file_path)? {
         // Check the CRS of the LAS file
         Some(Crs::Wkt(wkt)) => Some(wkt),
         Some(Crs::GeoTiff(geo_key_directory, geo_double_params, geo_ascii_params)) => {
@@ -325,14 +325,23 @@ pub fn create_polygon(
             )?)
         }
         None => {
-            info!("No CRS found for {}. Will not add data.", file_path);
+            // If no CRS information is found, attempt to guess CRS from point data
+
             None
         }
     };
-    if crs.is_none() {
-        return Err(LasPolyError::CrsError(CrsError::MissingCrs));
+
+    if !validate_crs_string(&crs) {
+        if guess_crs {
+            crs = guess_las_crs(file_path, 10)?;
+            if !validate_crs_string(&crs) {
+                return Err(LasPolyError::CrsError(CrsError::UnableToGuessCrs));
+            }
+        } else {
+            return Err(LasPolyError::CrsError(CrsError::MissingCrs));
+        }
     };
-    crs = Some(crs.unwrap().trim_end_matches(char::from(0)).to_string());
+
     // Create a Proj instance for transforming coordinates to EPSG:4326
     let to_epsg4326 =
         Proj::new_known_crs(&crs.unwrap(), "EPSG:4326", None).map_err(LasPolyError::from)?;
@@ -417,4 +426,11 @@ pub fn create_polygon(
     };
 
     Ok(feature)
+}
+
+fn validate_crs_string(crs_option: &Option<String>) -> bool {
+    match crs_option {
+        None => false,
+        Some(crs_string) => Proj::new(crs_string.as_str()).is_ok(),
+    }
 }

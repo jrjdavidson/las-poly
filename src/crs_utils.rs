@@ -1,5 +1,4 @@
 use las::{Point, Reader};
-use log::debug;
 use rand::Rng;
 use thiserror::Error;
 
@@ -25,9 +24,11 @@ pub enum CrsError {
     CrsNotFoundError,
     #[error("CRS information not found in file")]
     MissingCrs,
+    #[error("Unable to guess CRS from points")]
+    UnableToGuessCrs,
 }
 
-pub fn extract_crs(file_path: &str, guess_crs: bool) -> Result<Option<Crs>, CrsError> {
+pub fn extract_crs(file_path: &str) -> Result<Option<Crs>, CrsError> {
     let reader = Reader::from_path(file_path)?;
 
     let header = reader.header();
@@ -75,17 +76,15 @@ pub fn extract_crs(file_path: &str, guess_crs: bool) -> Result<Option<Crs>, CrsE
             return Ok(Some(crs));
         }
     }
-    // If no CRS information is found, attempt to guess CRS from point data
-    if guess_crs {
-        debug!(
-            "No CRS found in VLRs data, attempting to guess CRS from a random sample of 10 points",
-        );
-        let points = grab_random_points(reader, 10)?;
-        if let Some(guessed_crs) = guess_crs_from_points(points) {
-            return Ok(Some(guessed_crs));
-        }
-    }
+
     Ok(None)
+}
+
+pub fn guess_las_crs(file_path: &str, num_points: usize) -> Result<Option<String>, CrsError> {
+    let reader = Reader::from_path(file_path)?;
+    let points = grab_random_points(reader, num_points)?;
+    let crs = guess_crs_from_points(points);
+    Ok(crs)
 }
 
 fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point>, CrsError> {
@@ -110,7 +109,7 @@ fn grab_random_points(mut reader: Reader, num_points: usize) -> Result<Vec<Point
     }
 }
 
-fn guess_crs_from_points(points: Vec<Point>) -> Option<Crs> {
+fn guess_crs_from_points(points: Vec<Point>) -> Option<String> {
     if points.is_empty() {
         return None;
     }
@@ -135,10 +134,10 @@ fn guess_crs_from_points(points: Vec<Point>) -> Option<Crs> {
     }
 
     if is_epsg_4326 {
-        return Some(Crs::Wkt("EPSG:4326".to_string()));
+        return Some("EPSG:4326".to_string());
     }
     if is_epsg_2193 {
-        return Some(Crs::Wkt("EPSG:2193".to_string()));
+        return Some("EPSG:2193".to_string());
     }
 
     None
@@ -166,13 +165,13 @@ pub fn extract_crs_from_geotiff(
         match key_id {
             2048 => {
                 // GeographicTypeGeoKey
-                if value_offset != 32767 {
+                if value_offset != 32767 && value_offset != 65535 {
                     proj_string = format!("EPSG:{} ", value_offset);
                 }
             }
             3072 => {
                 // ProjectedCSTypeGeoKey
-                if value_offset != 32767 {
+                if value_offset != 32767 && value_offset != 65535 {
                     proj_string = format!("EPSG:{} ", value_offset);
                 }
             }
@@ -195,8 +194,18 @@ pub fn extract_crs_from_geotiff(
         }
     }
 
+    // Handle the case where the CRS string contains both a name and an EPSG code in brackets
+    if proj_string.contains(" (EPSG:") {
+        if let Some(start) = proj_string.find(" (EPSG:") {
+            proj_string = proj_string[..start].to_string();
+        } else if let Some(start) = proj_string.find("EPSG:") {
+            proj_string = proj_string[start..].to_string();
+        }
+    }
+    println!("{:?}", proj_string);
     Ok(proj_string.trim().to_string())
 }
+
 #[cfg(test)]
 mod tests {
     use test_log::test;
@@ -235,14 +244,17 @@ mod tests {
             writer.write_point(point).unwrap();
         }
         writer.close().unwrap();
-        let crs = extract_crs(file_path.to_str().unwrap(), true).unwrap();
-        assert!(matches!(crs, Some(Crs::Wkt(_))));
-        assert_eq!(crs.unwrap(), Crs::Wkt("EPSG:4326".to_string()));
+        let crs = extract_crs(file_path.to_str().unwrap()).unwrap();
+        assert!(crs.is_none());
+        let guessed_crs = guess_las_crs(file_path.to_str().unwrap(), 10).unwrap();
+        assert!(guessed_crs.is_some());
+
+        assert_eq!(guessed_crs.unwrap(), ("EPSG:4326".to_string()));
     }
     #[test]
     fn test_extract_crs_guess_none() {
         // Create a mock LAS file with points in EPSG:4326 bounds
-        let crs = extract_crs("tests/crs/BLOCK_129.las", true).unwrap();
+        let crs = extract_crs("tests/crs/BLOCK_129.las").unwrap();
         assert!(crs.is_none());
     }
     #[test]
@@ -271,7 +283,7 @@ mod tests {
             writer.write_point(point).unwrap();
         }
         writer.close().unwrap();
-        let crs = extract_crs(file_path.to_str().unwrap(), true).unwrap();
+        let crs = extract_crs(file_path.to_str().unwrap()).unwrap();
         assert!(crs.is_none());
     }
     #[test]
@@ -291,7 +303,7 @@ mod tests {
             })
             .unwrap(); // Write an empty point record
         writer.close().unwrap();
-        let crs = extract_crs(file_path.to_str().unwrap(), true).unwrap();
+        let crs = extract_crs(file_path.to_str().unwrap()).unwrap();
         assert!(crs.is_none());
     }
 
@@ -301,7 +313,7 @@ mod tests {
 
         // Test for VLRs data in the specified LAS file
         let file_path = "tests/crs/BQ29_1000_4907.las";
-        let crs = extract_crs(file_path, true).unwrap();
+        let crs = extract_crs(file_path).unwrap();
         assert!(crs.is_some());
 
         if let Some(Crs::Wkt(wkt)) = crs {
@@ -321,7 +333,7 @@ mod tests {
 
         // Test for VLRs data in the specified LAS file
         let file_path = "tests/crs/210728_035051_Scanner_1.las";
-        let crs = extract_crs(file_path, true).unwrap();
+        let crs = extract_crs(file_path).unwrap();
         assert!(crs.is_some());
         if let Some(Crs::Wkt(wkt)) = crs {
             assert!(!wkt.is_empty());
@@ -339,7 +351,7 @@ mod tests {
 
         // Test for VLRs data in the specified LAS file
         let file_path = "tests/crs/5points_14.las";
-        let crs = extract_crs(file_path, true).unwrap();
+        let crs = extract_crs(file_path).unwrap();
         assert!(crs.is_some());
         if let Some(Crs::Wkt(wkt)) = crs {
             assert!(wkt.is_empty());
@@ -357,7 +369,7 @@ mod tests {
 
         // Test for VLRs data in the specified LAS file
         let file_path = "tests/crs/merged.las";
-        let crs = extract_crs(file_path, true).unwrap();
+        let crs = extract_crs(file_path).unwrap();
         assert!(crs.is_some());
 
         if let Some(Crs::GeoTiff(data1, data2, data3)) = crs {
@@ -377,7 +389,27 @@ mod tests {
     fn test_unexpected_crs() {
         // Test for VLRs data in the specified LAS file
         let file_path = "tests/crs/BLK002598.las";
-        let crs = extract_crs(file_path, true).unwrap();
+        let crs = extract_crs(file_path).unwrap();
         assert!(crs.is_none());
+    }
+    #[test]
+    fn test_extract_crs_2193() {
+        use proj::Proj;
+
+        // Test for VLRs data in the specified LAS file
+        let file_path = "tests/crs/BW23_1000_1811.laz";
+        let crs = extract_crs(file_path).unwrap();
+        assert!(crs.is_some());
+        if let Some(Crs::GeoTiff(data1, data2, data3)) = crs {
+            assert!(!data1.is_empty());
+
+            // Check if proj accepts the GeoTIFF data
+            let crs_string =
+                extract_crs_from_geotiff(&data1, data2.as_deref(), data3.as_deref()).unwrap();
+            let proj = Proj::new_known_crs(&crs_string, "EPSG:4326", None);
+            assert!(proj.is_ok());
+        } else {
+            panic!("Expected CRS information in VLRs");
+        }
     }
 }

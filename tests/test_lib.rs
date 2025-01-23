@@ -526,7 +526,7 @@ fn test_proj_with_valid_wkt() {
 fn test_process_folder_with_merge_if_shared_vertex() {
     let temp_dir = setup();
     let output_path = temp_dir.path().join("data.geojson");
-    let folder_path = r"\\file\Research\LidarPowerline\02_LIDAR_PROJECTS\50_RANGITATA_VP1_BATHY_20240530\03_RAW_SURVEY_DATA\RANGITATA_VP1_20243105\09_EXPORT\03_CLASSIFIED_LAS";
+    let folder_path = r"\\file\Research\LidarPowerline\_VADIS\KiwiRail_August_2023\LAZ\";
     let config = ProcessConfig {
         folder_path: folder_path.to_string(),
         use_detailed_outline: false,
