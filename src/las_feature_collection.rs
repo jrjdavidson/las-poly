@@ -1,6 +1,6 @@
 use geo::{ConvexHull, Coord, Intersects, LineString, Polygon};
 use geojson::{Feature, FeatureCollection, GeoJson, Geometry, JsonObject, Value};
-use log::info;
+use log::{debug, info};
 use std::fs::File;
 use std::io::Write;
 use std::{
@@ -99,7 +99,6 @@ impl LasOutlineFeatureCollection {
                 }
             }
         }
-        println!("{:?}", self.features);
     }
 
     pub fn group_features_by_folder(&mut self) -> HashMap<String, Vec<Feature>> {
@@ -356,7 +355,7 @@ impl LasOutlineFeatureCollection {
                                 }
                             }
                             _ => {
-                                println!("{:?}:{:?}", key, value);
+                                debug!("Unhandled format for key/value pair {:?}:{:?}", key, value);
                             }
                         }
                     }

@@ -140,7 +140,6 @@ fn test_real_folder_merged() {
 
     // Check specific properties within the first feature
     let properties = first_feature["properties"].as_object().unwrap();
-    println!("{:?}", properties);
     assert_eq!(properties["SourceFileDir"], "tests/data");
     assert!(properties["number_of_features"].is_number());
     assert!(properties["number_of_points"].is_number());
