@@ -452,3 +452,108 @@ fn test_merge_geometries_with_colinear_points() {
 
     assert!(collection.features().is_empty());
 }
+
+#[test]
+fn test_merge_geometries_with_overlap_and_all_properties() {
+    let mut collection = LasOutlineFeatureCollection::new();
+    let mut properties = Map::new();
+    properties.insert("SourceFileDir".to_string(), json!("folder1"));
+    properties.insert("Attribute1".to_string(), json!("Value1"));
+    properties.insert("number_of_points".to_string(), json!(42));
+    properties.insert("date".to_string(), json!("2023-10-01"));
+    properties.insert("file_source_id".to_string(), json!(1));
+    properties.insert("generating_software".to_string(), json!("Software1"));
+    properties.insert("version".to_string(), json!("1.0"));
+    properties.insert("system_identifier".to_string(), json!("System1"));
+
+    let feature1 = Feature {
+        geometry: Some(Geometry::new(Value::Polygon(vec![vec![
+            vec![0.0, 0.0],
+            vec![2.0, 0.0],
+            vec![2.0, 2.0],
+            vec![0.0, 2.0],
+            vec![0.0, 0.0],
+        ]]))),
+        properties: Some(properties.clone()),
+        id: None,
+        bbox: None,
+        foreign_members: None,
+    };
+
+    let feature2 = Feature {
+        geometry: Some(Geometry::new(Value::Polygon(vec![vec![
+            vec![1.0, 1.0],
+            vec![3.0, 1.0],
+            vec![3.0, 3.0],
+            vec![1.0, 3.0],
+            vec![1.0, 1.0],
+        ]]))),
+        properties: Some(properties.clone()),
+        id: None,
+        bbox: None,
+        foreign_members: None,
+    };
+
+    collection.add_feature(feature1);
+    collection.add_feature(feature2);
+    collection.merge_geometries(false, true);
+
+    assert_eq!(collection.features().len(), 1);
+    let merged_feature = &collection.features()[0];
+    if let Some(geometry) = &merged_feature.geometry {
+        if let Value::Polygon(coords) = &geometry.value {
+            assert_eq!(coords[0].len(), 7); // Convex hull should have 7 points
+        } else {
+            panic!("Expected a Polygon");
+        }
+    } else {
+        panic!("Expected a geometry");
+    }
+
+    if let Some(properties) = &merged_feature.properties {
+        let source_file_dir = properties.get("SourceFileDir").unwrap().as_str().unwrap();
+        assert_eq!(source_file_dir, "folder1");
+
+        let number_of_points = properties
+            .get("number_of_points")
+            .unwrap()
+            .as_u64()
+            .unwrap();
+        assert_eq!(number_of_points, 84);
+
+        assert_eq!(
+            properties.get("date").unwrap().as_array().unwrap(),
+            &vec![serde_json::Value::String("2023-10-01".to_string())]
+        );
+        assert_eq!(
+            properties
+                .get("file_source_id")
+                .unwrap()
+                .as_array()
+                .unwrap(),
+            &vec![serde_json::Value::Number(1.into())]
+        );
+        assert_eq!(
+            properties
+                .get("generating_software")
+                .unwrap()
+                .as_array()
+                .unwrap(),
+            &vec![serde_json::Value::String("Software1".to_string())]
+        );
+        assert_eq!(
+            properties.get("version").unwrap().as_array().unwrap(),
+            &vec![serde_json::Value::String("1.0".to_string())]
+        );
+        assert_eq!(
+            properties
+                .get("system_identifier")
+                .unwrap()
+                .as_array()
+                .unwrap(),
+            &vec![serde_json::Value::String("System1".to_string())]
+        );
+    } else {
+        panic!("Expected properties");
+    }
+}

@@ -77,7 +77,6 @@ impl LasOutlineFeatureCollection {
                             shared_features.push(merged_feature);
                         }
                     }
-
                     let merged_group = self.group_by_overlap(&shared_features);
                     for group in merged_group {
                         let merged_feature_opt = self.merge_group(group, &folder_path);
@@ -336,22 +335,34 @@ impl LasOutlineFeatureCollection {
                 }
                 for (key, value) in properties.iter() {
                     if key != "SourceFile" && key != "SourceFileDir" && key != "number_of_points" {
-                        if let Some(value_str) = value.as_str() {
-                            let entry = merged_properties
-                                .entry(key.clone())
-                                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
-
-                            if let serde_json::Value::Array(arr) = entry {
-                                if !arr.iter().any(|v| v == value) {
-                                    arr.push(serde_json::Value::String(value_str.to_string()));
+                        match value {
+                            serde_json::Value::String(value_str) => {
+                                insert_unique_value(
+                                    &mut merged_properties,
+                                    key,
+                                    serde_json::Value::String(value_str.clone()),
+                                );
+                            }
+                            serde_json::Value::Number(value_num) => {
+                                insert_unique_value(
+                                    &mut merged_properties,
+                                    key,
+                                    serde_json::Value::Number(value_num.clone()),
+                                );
+                            }
+                            serde_json::Value::Array(value_arr) => {
+                                for item in value_arr {
+                                    insert_unique_value(&mut merged_properties, key, item.clone());
                                 }
+                            }
+                            _ => {
+                                println!("{:?}:{:?}", key, value);
                             }
                         }
                     }
                 }
             }
         }
-
         // Create a feature with the merged polygon and properties
         Some(Feature {
             geometry: Some(Geometry {
@@ -372,5 +383,21 @@ impl LasOutlineFeatureCollection {
 impl Default for LasOutlineFeatureCollection {
     fn default() -> Self {
         LasOutlineFeatureCollection::new()
+    }
+}
+
+fn insert_unique_value(
+    merged_properties: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    value: serde_json::Value,
+) {
+    let entry = merged_properties
+        .entry(key.to_string())
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+
+    if let serde_json::Value::Array(arr) = entry {
+        if !arr.iter().any(|v| v == &value) {
+            arr.push(value);
+        }
     }
 }
