@@ -1,7 +1,6 @@
 use geo::{ConvexHull, Coord, Intersects, LineString, Polygon};
-use geojson::{Feature, FeatureCollection, GeoJson, Geometry, Value};
+use geojson::{Feature, FeatureCollection, GeoJson, Geometry, JsonObject, Value};
 use log::info;
-use serde_json::Map;
 use std::fs::File;
 use std::io::Write;
 use std::{
@@ -38,8 +37,6 @@ impl Hash for OrderedCoord {
     }
 }
 
-type FolderFeatures = (Vec<Geometry>, u64, HashMap<String, Vec<String>>);
-
 impl LasOutlineFeatureCollection {
     pub fn new() -> Self {
         Self {
@@ -68,59 +65,49 @@ impl LasOutlineFeatureCollection {
     }
 
     pub fn merge_geometries(&mut self, only_join_if_shared_vertex: bool, merge_if_overlap: bool) {
-        let mut features_by_folder: HashMap<String, FolderFeatures> = HashMap::new();
-        self.group_features_by_folder(&mut features_by_folder);
-
-        for (folder_path, (geometries, total_points, other_properties)) in features_by_folder {
+        let features_by_folder = self.group_features_by_folder();
+        for (folder_path, features) in features_by_folder {
             if only_join_if_shared_vertex || merge_if_overlap {
-                let groups = self.group_by_shared_vertex(&geometries);
+                let groups = self.group_by_shared_vertex(&features);
                 if merge_if_overlap {
-                    let mut shared_geometries = Vec::new();
+                    let mut shared_features = Vec::new();
                     for group in groups {
-                        let merged_polygon = self.merge_group(group);
-                        let exterior_coords: Vec<Vec<f64>> = merged_polygon
-                            .exterior()
-                            .coords()
-                            .map(|c| vec![c.x, c.y])
-                            .collect();
-                        let geometry = Geometry::new(Value::Polygon(vec![exterior_coords]));
-                        shared_geometries.push(geometry);
+                        let merged_feature_opt = self.merge_group(group, &folder_path);
+                        if let Some(merged_feature) = merged_feature_opt {
+                            shared_features.push(merged_feature);
+                        }
                     }
 
-                    let merged_group = self.group_by_overlap(&shared_geometries);
+                    let merged_group = self.group_by_overlap(&shared_features);
                     for group in merged_group {
-                        let merged_polygon = self.merge_group(group);
-                        self.create_feature(
-                            folder_path.clone(),
-                            total_points,
-                            other_properties.clone(),
-                            merged_polygon,
-                        );
+                        let merged_feature_opt = self.merge_group(group, &folder_path);
+                        if let Some(merged_feature) = merged_feature_opt {
+                            self.add_feature(merged_feature);
+                        }
                     }
                 } else {
                     for group in groups {
-                        let merged_polygon = self.merge_group(group);
-                        self.create_feature(
-                            folder_path.clone(),
-                            total_points,
-                            other_properties.clone(),
-                            merged_polygon,
-                        );
+                        let merged_feature_opt = self.merge_group(group, &folder_path);
+                        if let Some(merged_feature) = merged_feature_opt {
+                            self.add_feature(merged_feature);
+                        }
                     }
                 }
             } else {
-                let merged_polygon = self.merge_group(geometries);
-                self.create_feature(folder_path, total_points, other_properties, merged_polygon);
+                let merged_feature_opt = self.merge_group(features, &folder_path);
+                if let Some(merged_feature) = merged_feature_opt {
+                    self.add_feature(merged_feature);
+                }
             }
         }
+        println!("{:?}", self.features);
     }
 
-    fn group_features_by_folder(
-        &mut self,
-        features_by_folder: &mut HashMap<String, FolderFeatures>,
-    ) {
+    pub fn group_features_by_folder(&mut self) -> HashMap<String, Vec<Feature>> {
+        let mut folder_map: HashMap<String, Vec<Feature>> = HashMap::new();
+
         for feature in self.features.drain(..) {
-            let folder_path = feature
+            let folder_name = feature
                 .properties
                 .as_ref()
                 .unwrap()
@@ -129,55 +116,77 @@ impl LasOutlineFeatureCollection {
                 .as_str()
                 .unwrap()
                 .to_string();
-            let geometry = feature.geometry.unwrap();
-            let number_of_points: u64 = feature
-                .properties
-                .as_ref()
-                .unwrap()
-                .get("number_of_points")
-                .unwrap()
-                .as_u64()
-                .unwrap();
-            let mut other_properties = HashMap::new();
-            for (key, value) in feature.properties.as_ref().unwrap().iter() {
-                if key != "SourceFileDir" && key != "SourceFile" && key != "number_of_points" {
-                    if let Some(value_str) = value.as_str() {
-                        other_properties
-                            .entry(key.clone())
-                            .or_insert_with(Vec::new)
-                            .push(value_str.to_string());
-                    }
-                }
-            }
-
-            features_by_folder
-                .entry(folder_path.clone())
+            folder_map
+                .entry(folder_name)
                 .or_default()
-                .0
-                .push(geometry);
-            features_by_folder.entry(folder_path.clone()).or_default().1 += number_of_points;
-            for (key, values) in other_properties {
-                let entry = features_by_folder
-                    .entry(folder_path.clone())
-                    .or_insert_with(|| (Vec::new(), 0, HashMap::new()))
-                    .2
-                    .entry(key)
-                    .or_default();
-                for value in values {
-                    if !entry.contains(&value) {
-                        entry.push(value);
-                    }
-                }
-            }
+                .push(feature.clone());
         }
+
+        folder_map
     }
+    // {  for feature in self.features.drain(..) {
+    //         let folder_path = feature
+    //             .properties
+    //             .as_ref()
+    //             .unwrap()
+    //             .get("SourceFileDir")
+    //             .unwrap()
+    //             .as_str()
+    //             .unwrap()
+    //             .to_string();
+    //         let geometry = feature.geometry.unwrap();
+    //         let number_of_points: u64 = feature
+    //             .properties
+    //             .as_ref()
+    //             .unwrap()
+    //             .get("number_of_points")
+    //             .unwrap()
+    //             .as_u64()
+    //             .unwrap();
+    //         let mut other_properties = HashMap::new();
+    //         for (key, value) in feature.properties.as_ref().unwrap().iter() {
+    //             if key != "SourceFileDir" && key != "SourceFile" && key != "number_of_points" {
+    //                 if let Some(value_str) = value.as_str() {
+    //                     other_properties
+    //                         .entry(key.clone())
+    //                         .or_insert_with(Vec::new)
+    //                         .push(value_str.to_string());
+    //                 }
+    //             }
+    //         }
 
-    fn group_by_shared_vertex(&self, geometries: &[Geometry]) -> Vec<Vec<Geometry>> {
+    //         features_by_folder
+    //             .entry(folder_path.clone())
+    //             .or_default()
+    //             .0
+    //             .push(geometry);
+    //         features_by_folder.entry(folder_path.clone()).or_default().1 += number_of_points;
+    //         for (key, values) in other_properties {
+    //             let entry = features_by_folder
+    //                 .entry(folder_path.clone())
+    //                 .or_insert_with(|| (Vec::new(), 0, HashMap::new()))
+    //                 .2
+    //                 .entry(key)
+    //                 .or_default();
+    //             for value in values {
+    //                 if !entry.contains(&value) {
+    //                     entry.push(value);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
+    fn group_by_shared_vertex(&self, features: &[Feature]) -> Vec<Vec<Feature>> {
         let mut vertex_to_index: HashMap<OrderedCoord, Vec<usize>> = HashMap::new();
-        let mut uf = QuickUnionUf::<UnionByRank>::new(geometries.len());
+        let mut uf = QuickUnionUf::<UnionByRank>::new(features.len());
 
-        for (i, geometry) in geometries.iter().enumerate() {
-            if let Value::Polygon(coords) = &geometry.value {
+        for (i, feature) in features.iter().enumerate() {
+            if let Some(Geometry {
+                value: Value::Polygon(coords),
+                ..
+            }) = &feature.geometry
+            {
                 for coord in &coords[0] {
                     let ordered_coord = OrderedCoord {
                         x: coord[0],
@@ -193,22 +202,28 @@ impl LasOutlineFeatureCollection {
             }
         }
 
-        let mut groups: HashMap<usize, Vec<Geometry>> = HashMap::new();
-        for (i, geometry) in geometries.iter().enumerate() {
+        let mut groups: HashMap<usize, Vec<Feature>> = HashMap::new();
+        for (i, feature) in features.iter().enumerate() {
             let root = uf.find(i);
-            groups.entry(root).or_default().push(geometry.clone());
+            groups.entry(root).or_default().push(feature.clone());
         }
 
         groups.into_values().collect()
     }
 
-    fn group_by_overlap(&self, geometries: &[Geometry]) -> Vec<Vec<Geometry>> {
-        let mut uf = QuickUnionUf::<UnionByRank>::new(geometries.len());
+    fn group_by_overlap(&self, features: &[Feature]) -> Vec<Vec<Feature>> {
+        let mut uf = QuickUnionUf::<UnionByRank>::new(features.len());
 
-        for i in 0..geometries.len() {
-            for j in (i + 1)..geometries.len() {
+        for i in 0..features.len() {
+            for j in (i + 1)..features.len() {
                 if let (Value::Polygon(coords1), Value::Polygon(coords2)) =
-                    (&geometries[i].value, &geometries[j].value)
+                    if let (Some(geom1), Some(geom2)) =
+                        (&features[i].geometry, &features[j].geometry)
+                    {
+                        (&geom1.value, &geom2.value)
+                    } else {
+                        continue;
+                    }
                 {
                     let poly1 = Polygon::new(
                         LineString::from(
@@ -235,20 +250,24 @@ impl LasOutlineFeatureCollection {
             }
         }
 
-        let mut groups: HashMap<usize, Vec<Geometry>> = HashMap::new();
-        for (i, geometry) in geometries.iter().enumerate() {
+        let mut groups: HashMap<usize, Vec<Feature>> = HashMap::new();
+        for (i, feature) in features.iter().enumerate() {
             let root = uf.find(i);
-            groups.entry(root).or_default().push(geometry.clone());
+            groups.entry(root).or_default().push(feature.clone());
         }
 
         groups.into_values().collect()
     }
 
-    fn merge_group(&self, geometries: Vec<Geometry>) -> Polygon<f64> {
-        let merged_polygon = geometries.into_iter().fold(
+    fn merge_group(&self, features: Vec<Feature>, folder_path: &String) -> Option<Feature> {
+        let merged_polygon = features.iter().fold(
             Polygon::new(LineString::new(vec![]), vec![]),
-            |acc, geometry| {
-                if let Value::Polygon(geom_coords) = geometry.value {
+            |acc, feature| {
+                if let Some(Geometry {
+                    value: Value::Polygon(geom_coords),
+                    ..
+                }) = &feature.geometry
+                {
                     let mut coords: Vec<Coord<f64>> = acc.exterior().clone().into_inner();
                     let new_coords: Vec<Coord<f64>> = geom_coords[0]
                         .iter()
@@ -267,54 +286,86 @@ impl LasOutlineFeatureCollection {
                 }
             },
         );
+
         // Log a warning if the merged polygon has fewer than 4 points
+
         if merged_polygon.exterior().coords().count() < 4 {
             info!(
                 "Merged polygon has fewer than 4 points: {:?}",
                 merged_polygon.exterior().coords().collect::<Vec<_>>()
             );
-            return Polygon::new(LineString::new(Vec::<Coord<f64>>::new()), vec![]);
+            return None;
         }
-        merged_polygon
-    }
+        // Merge properties
+        let mut merged_properties: JsonObject = JsonObject::new();
+        merged_properties.insert(
+            "SourceFileDir".to_string(),
+            serde_json::Value::String(folder_path.to_string()),
+        );
+        for feature in features {
+            merged_properties
+                .entry("number_of_features".to_string())
+                .and_modify(|e| {
+                    if let serde_json::Value::Number(n) = e {
+                        if let Some(count) = n.as_u64() {
+                            *e = serde_json::Value::Number(serde_json::Number::from(count + 1));
+                        }
+                    }
+                })
+                .or_insert_with(|| serde_json::Value::Number(serde_json::Number::from(1)));
+            if let Some(properties) = &feature.properties {
+                if let Some(number_of_points_value) = properties.get("number_of_points") {
+                    if let Some(number_of_points) = number_of_points_value.as_u64() {
+                        merged_properties
+                            .entry("number_of_points".to_string())
+                            .and_modify(|e| {
+                                if let serde_json::Value::Number(n) = e {
+                                    if let Some(count) = n.as_u64() {
+                                        *e = serde_json::Value::Number(serde_json::Number::from(
+                                            count + number_of_points,
+                                        ));
+                                    }
+                                }
+                            })
+                            .or_insert_with(|| {
+                                serde_json::Value::Number(serde_json::Number::from(
+                                    number_of_points,
+                                ))
+                            });
+                    }
+                }
+                for (key, value) in properties.iter() {
+                    if key != "SourceFile" && key != "SourceFileDir" && key != "number_of_points" {
+                        if let Some(value_str) = value.as_str() {
+                            let entry = merged_properties
+                                .entry(key.clone())
+                                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
 
-    fn create_feature(
-        &mut self,
-        folder_path: String,
-        total_points: u64,
-        other_properties: HashMap<String, Vec<String>>,
-        merged_polygon: Polygon<f64>,
-    ) {
-        let exterior_coords: Vec<Vec<f64>> = merged_polygon
-            .exterior()
-            .coords()
-            .map(|c| vec![c.x, c.y])
-            .collect();
-        let geojson_polygon = Value::Polygon(vec![exterior_coords]);
-        let geometry = Geometry::new(geojson_polygon);
-        let mut properties = Map::new();
-        properties.insert("SourceFileDir".to_string(), folder_path.into());
-        properties.insert("number_of_points".to_string(), total_points.into());
-        for (key, values) in &other_properties {
-            properties.insert(
-                key.to_string(),
-                serde_json::Value::Array(
-                    values
-                        .iter()
-                        .map(|v| serde_json::Value::String(v.clone()))
-                        .collect(),
-                ),
-            );
+                            if let serde_json::Value::Array(arr) = entry {
+                                if !arr.iter().any(|v| v == value) {
+                                    arr.push(serde_json::Value::String(value_str.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        let feature = Feature {
-            geometry: Some(geometry),
-            properties: Some(properties),
-            id: None,
-            bbox: None,
-            foreign_members: None,
-        };
 
-        self.add_feature(feature);
+        // Create a feature with the merged polygon and properties
+        Some(Feature {
+            geometry: Some(Geometry {
+                value: Value::Polygon(vec![merged_polygon
+                    .exterior()
+                    .coords()
+                    .map(|c| vec![c.x, c.y])
+                    .collect()]),
+                bbox: None,
+                foreign_members: None,
+            }),
+            properties: Some(merged_properties),
+            ..Default::default()
+        })
     }
 }
 

@@ -450,15 +450,5 @@ fn test_merge_geometries_with_colinear_points() {
     collection.add_feature(feature1);
     collection.merge_geometries(true, false);
 
-    assert_eq!(collection.features().len(), 1);
-    let merged_feature = &collection.features()[0];
-    if let Some(geometry) = &merged_feature.geometry {
-        if let Value::Polygon(coords) = &geometry.value {
-            assert!(coords[0].is_empty(), "Expected an empty polygon");
-        } else {
-            panic!("Expected a Polygon");
-        }
-    } else {
-        panic!("Expected a geometry");
-    }
+    assert!(collection.features().is_empty());
 }

@@ -812,18 +812,7 @@ fn test_process_folder_with_single_point_las() {
     let geojson_str = fs::read_to_string(&output_path).unwrap();
     let geojson: GeoJson = geojson_str.parse().unwrap();
     if let GeoJson::FeatureCollection(fc) = geojson {
-        assert_eq!(fc.features.len(), 1);
-        let feature = &fc.features[0];
-        if let Some(geometry) = &feature.geometry {
-            if let Value::Polygon(polygon) = &geometry.value {
-                assert_eq!(polygon.len(), 1); // One polygon
-                assert_eq!(polygon[0].len(), 0); // Four coordinates (closing the polygon)
-            } else {
-                panic!("Expected an empty Polygon geometry");
-            }
-        } else {
-            panic!("Expected a geometry in the feature");
-        }
+        assert!(fc.features.is_empty());
     } else {
         panic!("Expected a FeatureCollection");
     }

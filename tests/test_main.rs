@@ -51,3 +51,4 @@ fn test_invalid_folder() {
         .failure()
         .stderr(predicate::str::contains("Error"));
 }
+
