@@ -334,30 +334,7 @@ impl LasOutlineFeatureCollection {
                 }
                 for (key, value) in properties.iter() {
                     if key != "SourceFile" && key != "SourceFileDir" && key != "number_of_points" {
-                        match value {
-                            serde_json::Value::String(value_str) => {
-                                insert_unique_value(
-                                    &mut merged_properties,
-                                    key,
-                                    serde_json::Value::String(value_str.clone()),
-                                );
-                            }
-                            serde_json::Value::Number(value_num) => {
-                                insert_unique_value(
-                                    &mut merged_properties,
-                                    key,
-                                    serde_json::Value::Number(value_num.clone()),
-                                );
-                            }
-                            serde_json::Value::Array(value_arr) => {
-                                for item in value_arr {
-                                    insert_unique_value(&mut merged_properties, key, item.clone());
-                                }
-                            }
-                            _ => {
-                                debug!("Unhandled format for key/value pair {:?}:{:?}", key, value);
-                            }
-                        }
+                        insert_unique_value(&mut merged_properties, key, value.clone());
                     }
                 }
             }
@@ -384,7 +361,6 @@ impl Default for LasOutlineFeatureCollection {
         LasOutlineFeatureCollection::new()
     }
 }
-
 fn insert_unique_value(
     merged_properties: &mut serde_json::Map<String, serde_json::Value>,
     key: &str,
@@ -392,11 +368,24 @@ fn insert_unique_value(
 ) {
     let entry = merged_properties
         .entry(key.to_string())
-        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        .or_insert_with(|| serde_json::Value::String(String::new()));
 
-    if let serde_json::Value::Array(arr) = entry {
-        if !arr.iter().any(|v| v == &value) {
-            arr.push(value);
+    if let serde_json::Value::String(existing_value) = entry {
+        let new_value = match value {
+            serde_json::Value::String(value_str) => value_str,
+            serde_json::Value::Number(value_num) => value_num.to_string(),
+            _ => {
+                debug!("Unsupported value type: {:?}", value);
+                return;
+            }
+        };
+
+        if !existing_value.contains(&new_value) {
+            if existing_value.is_empty() {
+                *existing_value = new_value;
+            } else {
+                *existing_value = format!("{},{}", existing_value, new_value);
+            }
         }
     }
 }
