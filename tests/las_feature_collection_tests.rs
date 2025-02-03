@@ -144,15 +144,15 @@ fn test_merge_geometries() {
             .unwrap();
         assert_eq!(number_of_points, 126);
 
-        let attribute1 = properties.get("Attribute1").unwrap().as_array().unwrap();
-        assert!(attribute1.contains(&json!("Value1")));
-        assert!(attribute1.contains(&json!("Value2")));
+        let attribute1 = properties.get("Attribute1").unwrap().as_str().unwrap();
+        assert!(attribute1.contains("Value1"));
+        assert!(attribute1.contains("Value2"));
 
-        let attribute2 = properties.get("Attribute2").unwrap().as_array().unwrap();
-        assert!(attribute2.contains(&json!("Value3")));
+        let attribute2 = properties.get("Attribute2").unwrap().as_str().unwrap();
+        assert!(attribute2.contains("Value3"));
 
-        let attribute3 = properties.get("Attribute3").unwrap().as_array().unwrap();
-        assert!(attribute3.contains(&json!("!@#$%^&*()")));
+        let attribute3 = properties.get("Attribute3").unwrap().as_str().unwrap();
+        assert!(attribute3.contains("!@#$%^&*()"));
     } else {
         panic!("Expected properties");
     }

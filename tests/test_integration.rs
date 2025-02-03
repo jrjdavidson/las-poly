@@ -63,31 +63,23 @@ fn test_real_folder_detailed() {
     assert_eq!(properties["SourceFileDir"], "tests/data");
     assert!(properties["number_of_features"].is_number());
     assert!(properties["number_of_points"].is_number());
-    assert!(properties["date"].is_array());
-    assert!(properties["generating_software"].is_array());
-    assert!(properties["system_identifier"].is_array());
-    assert!(properties["version"].is_array());
+    assert!(properties["date"].is_string());
+    assert!(properties["generating_software"].is_string());
+    assert!(properties["system_identifier"].is_string());
+    assert!(properties["version"].is_string());
 
     // Validate the format of specific properties
-    let date = properties["date"].as_array().unwrap();
-    assert!(!date.is_empty());
-    assert!(date[0]
-        .as_str()
-        .unwrap()
-        .parse::<chrono::NaiveDate>()
-        .is_ok());
+    let date = properties["date"].as_str().unwrap();
+    assert!(date.parse::<chrono::NaiveDate>().is_ok());
 
-    let generating_software = properties["generating_software"].as_array().unwrap();
+    let generating_software = properties["generating_software"].as_str().unwrap();
     assert!(!generating_software.is_empty());
-    assert!(generating_software[0].as_str().is_some());
 
-    let system_identifier = properties["system_identifier"].as_array().unwrap();
+    let system_identifier = properties["system_identifier"].as_str().unwrap();
     assert!(!system_identifier.is_empty());
-    assert!(system_identifier[0].as_str().is_some());
 
-    let version = properties["version"].as_array().unwrap();
+    let version = properties["version"].as_str().unwrap();
     assert!(!version.is_empty());
-    assert!(version[0].as_str().is_some());
 }
 #[test]
 fn test_real_folder_merged() {
@@ -143,29 +135,21 @@ fn test_real_folder_merged() {
     assert_eq!(properties["SourceFileDir"], "tests/data");
     assert!(properties["number_of_features"].is_number());
     assert!(properties["number_of_points"].is_number());
-    assert!(properties["date"].is_array());
-    assert!(properties["generating_software"].is_array());
-    assert!(properties["system_identifier"].is_array());
-    assert!(properties["version"].is_array());
+    assert!(properties["date"].is_string());
+    assert!(properties["generating_software"].is_string());
+    assert!(properties["system_identifier"].is_string());
+    assert!(properties["version"].is_string());
 
     // Validate the format of specific properties
-    let date = properties["date"].as_array().unwrap();
-    assert!(!date.is_empty());
-    assert!(date[0]
-        .as_str()
-        .unwrap()
-        .parse::<chrono::NaiveDate>()
-        .is_ok());
+    let date = properties["date"].as_str().unwrap();
+    assert!(date.parse::<chrono::NaiveDate>().is_ok());
 
-    let generating_software = properties["generating_software"].as_array().unwrap();
+    let generating_software = properties["generating_software"].as_str().unwrap();
     assert!(!generating_software.is_empty());
-    assert!(generating_software[0].as_str().is_some());
 
-    let system_identifier = properties["system_identifier"].as_array().unwrap();
+    let system_identifier = properties["system_identifier"].as_str().unwrap();
     assert!(!system_identifier.is_empty());
-    assert!(system_identifier[0].as_str().is_some());
 
-    let version = properties["version"].as_array().unwrap();
+    let version = properties["version"].as_str().unwrap();
     assert!(!version.is_empty());
-    assert!(version[0].as_str().is_some());
 }
